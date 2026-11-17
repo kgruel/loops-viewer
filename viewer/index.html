@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Loops Store</title>
+<style>
+:root {
+  color-scheme: light dark;
+
+  --paper: #f7f5f0;
+  --surface: #fffdf9;
+  --sunken: #efece5;
+  --ink: #1d1c1a;
+  --ink-2: #5b5852;
+  --ink-3: #8a867e;
+  --line: #e2ded5;
+  --line-strong: #cfcac0;
+  --accent: #2f5bd3;
+  --accent-soft: #e6ecfb;
+  --fresh: #fff2c4;
+
+  --sev-critical: #b42318; --sev-critical-bg: #fde8e6;
+  --sev-high: #b54708;     --sev-high-bg: #fdefe1;
+  --sev-medium: #8a6100;   --sev-medium-bg: #faf1d6;
+  --sev-low: #4b5563;      --sev-low-bg: #eceef1;
+  --ok: #1f7a4d;           --ok-bg: #e3f3ea;
+  --muted-bg: #ecebe7;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --radius: 8px;
+
+  --scroll-thumb: #9d988e;
+  scrollbar-color: var(--scroll-thumb) transparent;
+
+  /* The shared header (chrome.js) reads these. */
+  --chrome-bg: color-mix(in srgb, var(--paper) 88%, transparent);
+  --chrome-field: var(--sunken);
+  --chrome-ok: var(--ok);
+  --chrome-bad: var(--sev-critical);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141413;
+    --surface: #1c1b19;
+    --sunken: #232220;
+    --ink: #ebe8e1;
+    --ink-2: #b3afa6;
+    --ink-3: #85817a;
+    --line: #2e2d2a;
+    --line-strong: #3d3b37;
+    --accent: #8aa8ff;
+    --accent-soft: #1f2a46;
+    --fresh: #3a3216;
+
+    --sev-critical: #ff9b8f; --sev-critical-bg: #3d1a17;
+    --sev-high: #ffb27a;     --sev-high-bg: #3a2414;
+    --sev-medium: #e9c46a;   --sev-medium-bg: #332a12;
+    --sev-low: #b6bcc6;      --sev-low-bg: #262a30;
+    --ok: #7fd3a4;           --ok-bg: #16301f;
+    --muted-bg: #2a2926;
+    --scroll-thumb: #5d5a54;
+  }
+}
+
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---------- Header (pieces from chrome.js; this page places it as a sticky bar) ---------- */
+.top {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+  padding: 10px 24px;
+  background: var(--chrome-bg);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.search {
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface);
+}
+.search::placeholder { color: var(--ink-3); }
+
+/* ---------- Layout ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr) 360px;
+  gap: 0;
+  min-height: calc(100dvh - var(--header-h, 53px));
+}
+.shell[data-feed="closed"] { grid-template-columns: 208px minmax(0, 1fr) 44px; }
+.rail { border-inline-end: 1px solid var(--line); padding: 16px 12px; }
+.content { padding: 20px 24px 48px; min-width: 0; }
+.feed { border-inline-start: 1px solid var(--line); background: var(--surface); min-width: 0; }
+
+@media (width < 1180px) {
+  .shell, .shell[data-feed="closed"] { grid-template-columns: 208px minmax(0, 1fr); }
+  .feed { grid-column: 1 / -1; border-inline-start: 0; border-top: 1px solid var(--line); }
+}
+@media (width < 760px) {
+  .top { padding: 10px 16px; }
+  .shell, .shell[data-feed="closed"] { grid-template-columns: minmax(0, 1fr); }
+  .rail { border-inline-end: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  /* One scrolling row of kinds; the group headings drop out. */
+  .rail > ul { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .rail li { flex: none; }
+  .rail li.group, .rail li.group > ul { display: contents; }
+  .rail h2, .rail h3, .rail .sep { display: none; }
+  .content { padding: 16px; }
+}
+
+/* ---------- Kind rail ---------- */
+.rail h2 {
+  font-size: 12px; font-weight: 600; color: var(--ink-3);
+  margin: 0 8px 8px;
+}
+.rail ul { list-style: none; margin: 0; padding: 0; }
+.rail button {
+  width: 100%;
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 5px 8px; border: 0; border-radius: 6px;
+  background: transparent; text-align: start; cursor: pointer;
+  color: var(--ink-2);
+}
+.rail button:hover { background: var(--sunken); color: var(--ink); }
+.rail button[aria-current="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.rail .count { color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 400; }
+.rail .sep { height: 1px; background: var(--line); margin: 8px; }
+.rail .bump { color: var(--accent); }
+.rail h3 { margin: 14px 8px 4px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.rail ul ul { list-style: none; margin: 0; padding: 0; }
+.rail button > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-strip { padding: 12px 24px; position: sticky; top: var(--header-h, 53px); z-index: 4; border-bottom: 1px solid var(--line); background: var(--surface); }
+.timeline-strip[hidden] { display: none; }
+.range-bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin: -6px 0 14px; color: var(--ink-2); font-size: 13px; }
+.range-bar label { display: inline-flex; gap: 6px; align-items: center; }
+.range-bar button { border: 0; padding: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; }
+.range-bar button:hover { text-decoration: underline; }
+/* Changed in the selected time range: a steady tint plus a mark in the key cell, so it is not colour alone. */
+tbody tr[data-in-range] > * { background: var(--accent-soft); }
+tbody tr[data-in-range] > th:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.in-range-tag { margin-inline-start: 6px; font-size: 11px; color: var(--accent); white-space: nowrap; }
+
+/* ---------- Content header ---------- */
+.view-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.view-head h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.015em; }
+.view-head .sub { color: var(--ink-3); }
+.view-head label { margin-inline-start: auto; color: var(--ink-2); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; margin-bottom: 18px; }
+.tile {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.tile h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tile .bars { display: flex; flex-wrap: wrap; gap: 6px; }
+.tile .badge { white-space: normal; }
+
+/* ---------- Badges ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 999px;
+  font-size: 12px; font-weight: 550; line-height: 18px; white-space: nowrap;
+  background: var(--muted-bg); color: var(--ink-2);
+}
+.badge b { font-variant-numeric: tabular-nums; }
+.badge[data-tone="critical"] { background: var(--sev-critical-bg); color: var(--sev-critical); }
+.badge[data-tone="high"]     { background: var(--sev-high-bg); color: var(--sev-high); }
+.badge[data-tone="medium"]   { background: var(--sev-medium-bg); color: var(--sev-medium); }
+.badge[data-tone="low"]      { background: var(--sev-low-bg); color: var(--sev-low); }
+.badge[data-tone="ok"]       { background: var(--ok-bg); color: var(--ok); }
+.badge[data-tone="accent"]   { background: var(--accent-soft); color: var(--accent); }
+.kind-chip { font: 11px/18px var(--mono); padding: 0 6px; border-radius: 4px; background: var(--sunken); color: var(--ink-2); }
+
+/* ---------- Tables (responsive-table guide) ---------- */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: calc(100dvh - var(--header-h, 53px) - 150px);
+  container-type: inline-size;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface);
+}
+table { border-collapse: separate; border-spacing: 0; width: 100%; }
+caption { text-align: start; }
+thead { position: sticky; inset-block-start: 0; z-index: 1; }
+thead th {
+  background: var(--sunken); color: var(--ink-2);
+  font-size: 12px; font-weight: 600; text-align: start;
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+/* Sortable headers (sortable-table guide): a button fills the cell; aria-sort on the th drives the arrow. */
+thead th:has(> button) { padding: 0; }
+thead th > button {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; padding: 8px 12px;
+  border: 0; background: none; font: inherit; color: inherit; text-align: start; cursor: pointer;
+}
+thead th > button:hover { color: var(--ink); }
+thead th > button:focus-visible { outline-offset: -2px; }
+thead th > button svg { width: 10px; height: 10px; flex: none; opacity: 0; }
+thead th > button:hover svg { opacity: 0.4; }
+thead th[aria-sort] > button { color: var(--ink); }
+thead th[aria-sort] > button svg { opacity: 1; }
+thead th[aria-sort="descending"] > button svg { rotate: 180deg; }
+.ident { white-space: nowrap; }
+.chips a { white-space: nowrap; }
+tbody th, tbody td {
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+  text-align: start; vertical-align: top; font-weight: 400;
+}
+tbody tr:last-child > * { border-bottom: 0; }
+tbody th {
+  position: sticky; inset-inline-start: 0;
+  background: var(--surface);
+  font-family: var(--mono); font-size: 12.5px;
+  white-space: nowrap;
+}
+td time { white-space: nowrap; }
+tbody th.titled { font: inherit; white-space: normal; min-width: 22ch; max-width: 46ch; }
+tbody th.titled a { color: var(--ink); font-weight: 550; }
+tbody th.titled a:hover { color: var(--accent); }
+.key-under { display: block; margin-top: 4px; font: 11px var(--mono); color: var(--ink-3); }
+.key-under .badge { font-family: var(--sans); }
+tbody tr { cursor: pointer; }
+tbody tr:hover > * { background: var(--sunken); }
+tbody tr[data-inactive] > * { color: var(--ink-3); }
+:is(td, th) .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 60ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.empty { padding: 32px; text-align: center; color: var(--ink-3); }
+
+@keyframes fresh { from { background: var(--fresh); } to { background: transparent; } }
+tbody tr[data-fresh] > * { animation: fresh 2.4s ease-out; }
+
+@container (width < 600px) {
+  table, thead, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  tbody tr { border-bottom: 1px solid var(--line); padding: 4px 0; }
+  tbody th, tbody td { border: 0; padding: 4px 12px; }
+  tbody th { position: sticky; inset-block-start: 0; z-index: 2; white-space: normal; overflow-wrap: anywhere; }
+  tbody td::before {
+    display: block; font-size: 11px; color: var(--ink-3); font-weight: 600;
+  }
+  tbody td:nth-child(2)::before { content: var(--label-2); }
+  tbody td:nth-child(3)::before { content: var(--label-3); }
+  tbody td:nth-child(4)::before { content: var(--label-4); }
+  tbody td:nth-child(5)::before { content: var(--label-5); }
+  tbody td:nth-child(6)::before { content: var(--label-6); }
+  tbody td:nth-child(7)::before { content: var(--label-7); }
+}
+
+/* ---------- Feed ---------- */
+.feed-head {
+  position: sticky; top: var(--header-h, 53px); z-index: 2;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 16px 18px 10px; background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+/* Two rows: title and Hide; then the count and "This view only". */
+.feed-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px; }
+.feed-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.feed-head .feed-toggle { grid-column: 2; grid-row: 1; justify-self: end; }
+.feed-head .sub { grid-column: 1; grid-row: 2; }
+.feed-head label { grid-column: 2; grid-row: 2; }
+.feed-head .sub { color: var(--ink-3); font-size: 12px; }
+.feed-head label { font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.feed-toggle {
+  border: 1px solid var(--line-strong); background: transparent; border-radius: 6px;
+  padding: 1px 8px; cursor: pointer; color: var(--ink-2); font-size: 12px;
+}
+.feed-toggle:hover { background: var(--sunken); color: var(--ink); }
+/* Collapsed: a slim column with a vertical "Emissions" button that counts arrivals while closed. */
+.feed-closed { display: none; }
+.shell[data-feed="closed"] .feed-open { display: none; }
+.shell[data-feed="closed"] .feed-closed {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  position: sticky; top: var(--header-h, 53px); width: 100%; padding: 14px 0;
+  border: 0; background: none; cursor: pointer; color: var(--ink-2); font: 600 12.5px var(--sans);
+}
+.shell[data-feed="closed"] .feed-closed:hover { color: var(--ink); background: var(--sunken); }
+.feed-closed .label { writing-mode: vertical-rl; }
+.feed-closed .bump { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (width < 1180px) {
+  .shell[data-feed="closed"] .feed-closed { flex-direction: row; justify-content: center; position: static; }
+  .feed-closed .label { writing-mode: horizontal-tb; }
+}
+.feed ol { list-style: none; margin: 0; padding: 0; }
+.emission {
+  padding: 12px 18px; border-bottom: 1px solid var(--line);
+  opacity: 1; translate: 0;
+  transition: opacity 0.35s ease-out, translate 0.35s ease-out, background-color 2s ease-out;
+}
+@starting-style {
+  .emission { opacity: 0; translate: 0 -8px; background-color: var(--fresh); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .emission { translate: none; transition-duration: 0.1s; }
+  @starting-style { .emission { translate: none; } }
+  tbody tr[data-fresh] > * { animation: none; background: var(--fresh); }
+}
+/* content-visibility only for cards that start below the fold */
+.feed li:nth-child(n + 9) { content-visibility: auto; contain-intrinsic-size: auto none auto 120px; }
+.emission .meta { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 12px; }
+.emission .meta time { margin-inline-start: auto; white-space: nowrap; }
+.emission .key {
+  display: block; margin: 4px 0 2px; font: 12.5px/1.4 var(--mono);
+  overflow-wrap: anywhere; color: var(--ink);
+}
+.emission .key:hover { color: var(--accent); }
+.emission .what { font-size: 12.5px; color: var(--ink-2); }
+.emission .observer { font: 11px var(--mono); color: var(--ink-3); }
+.diff { margin: 6px 0 0; display: grid; gap: 4px; }
+.diff div { font-size: 12.5px; overflow-wrap: anywhere; }
+.diff .f { font: 11.5px var(--mono); color: var(--ink-3); margin-inline-end: 6px; }
+.diff del { color: var(--ink-3); text-decoration-color: color-mix(in srgb, var(--sev-critical) 60%, transparent); }
+.diff ins { text-decoration: none; background: var(--ok-bg); color: var(--ink); padding: 0 3px; border-radius: 3px; }
+.diff details summary { cursor: pointer; color: var(--ink-2); }
+.diff details p { margin: 4px 0; white-space: pre-wrap; }
+.more { display: block; width: calc(100% - 36px); margin: 14px 18px 24px; padding: 8px; border: 1px solid var(--line-strong); background: transparent; border-radius: 6px; cursor: pointer; color: var(--ink-2); }
+.more:hover { background: var(--sunken); }
+
+/* ---------- Detail dialog (dialog + light-dismiss guides) ---------- */
+dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 0; border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface); color: var(--ink);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.22);
+  opacity: 1; translate: 0;
+  transition: opacity 0.2s ease-out, translate 0.2s ease-out, overlay 0.2s, display 0.2s;
+  transition-behavior: allow-discrete;
+}
+dialog:not([open]) { opacity: 0; translate: 0 10px; }
+@starting-style { dialog[open] { opacity: 0; translate: 0 10px; } }
+@media (prefers-reduced-motion: reduce) {
+  dialog, dialog:not([open]) { translate: none; }
+  @starting-style { dialog[open] { translate: none; } }
+}
+dialog:modal { overscroll-behavior: contain; }
+dialog::backdrop { background: rgb(20 18 15 / 0.45); overflow: hidden; overscroll-behavior: contain; }
+.dlg-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 16px 20px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.dlg-head h2 { margin: 2px 0 0; font: 600 15px/1.35 var(--mono); overflow-wrap: anywhere; }
+.dlg-head .title { margin: 4px 0 0; color: var(--ink-2); }
+.dlg-head form { margin-inline-start: auto; }
+.close {
+  border: 1px solid var(--line-strong); background: transparent; border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; color: var(--ink-2);
+}
+.close:hover { background: var(--sunken); }
+.dlg-body { padding: 16px 20px 24px; display: grid; gap: 22px; }
+.dlg-body h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.fields { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 6px 16px; margin: 0; }
+.fields dt { font: 12px/1.6 var(--mono); color: var(--ink-3); }
+.fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (width < 560px) { .fields { grid-template-columns: 1fr; } .fields dd { margin-bottom: 6px; } }
+.inbound { display: flex; flex-wrap: wrap; gap: 6px; }
+.timeline { list-style: none; margin: 0; padding: 0; border-inline-start: 2px solid var(--line); }
+.timeline li { position: relative; padding: 0 0 14px 16px; }
+.timeline li::before {
+  content: ""; position: absolute; inset-inline-start: -6px; top: 5px;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--line-strong);
+}
+.timeline li:last-child::before { border-color: var(--accent); background: var(--accent); }
+.timeline .meta { font-size: 12px; color: var(--ink-3); }
+
+.error { margin: 16px 0; padding: 10px 12px; border-radius: 6px; background: var(--sev-critical-bg); color: var(--sev-critical); }
+</style>
+</head>
+<body>
+
+<header class="top" data-chrome="tables">
+  <input class="search" data-slot="search" id="search" type="search" placeholder="Filter this view  ( / )" aria-label="Filter rows in this view" autocomplete="off">
+</header>
+<script src="/chrome.js"></script>
+
+<div class="timeline-strip" id="timeline" hidden></div>
+
+<div class="shell" id="shell">
+  <nav class="rail" aria-label="Kinds">
+    <h2>Views</h2>
+    <ul id="kinds"></ul>
+  </nav>
+
+  <main class="content" id="content" tabindex="-1"></main>
+
+  <aside class="feed" aria-labelledby="feed-title">
+    <button type="button" class="feed-closed" id="feed-show" aria-controls="feed-body" aria-expanded="false">
+      <span class="label">Emissions</span><span class="bump" id="feed-unseen"></span>
+    </button>
+    <div class="feed-open" id="feed-body">
+      <div class="feed-head">
+        <h2 id="feed-title">Emissions</h2>
+        <span class="sub" id="feed-sub"></span>
+        <label><input type="checkbox" id="feed-follow-view"> This view only</label>
+        <button type="button" class="feed-toggle" id="feed-hide" aria-controls="feed-body" aria-expanded="true">Hide</button>
+      </div>
+      <ol id="feed"></ol>
+      <button class="more" id="more" type="button">Load older emissions</button>
+    </div>
+  </aside>
+</div>
+
+<dialog id="detail" closedby="any" aria-labelledby="detail-title">
+  <div class="dlg-head">
+    <div>
+      <span class="kind-chip" id="detail-kind"></span>
+      <h2 id="detail-title"></h2>
+      <p class="title" id="detail-sub"></p>
+    </div>
+    <form method="dialog"><button class="close" value="close">Close</button></form>
+  </div>
+  <div class="dlg-body" id="detail-body"></div>
+</dialog>
+
+<p class="visually-hidden" id="announce-label">Store updates</p>
+<div class="visually-hidden" id="announce" aria-live="polite" aria-labelledby="announce-label"></div>
+<div class="visually-hidden" id="sort-status" role="status"></div>
+
+<script src="/timeline.js"></script>
+<script>
+"use strict";
+
+/* ===================== Display vocabulary (from the store's viewer config) =====================
+   /api/config is <vertex>.viewer.json, validated by serve.py. Everything here has a generic
+   default, so a store without a config still gets a working view. See README.md for the keys. */
+
+let COLUMNS = {};                       // kind -> [[field|fallback, label], ...]; key is always the first column
+let DEFAULT_COLUMNS = [["status", "Status"], ["title|summary|description|message", "Summary"]];
+let KIND_GROUPS = [];                   // sidebar groups; unlisted kinds land in "Other" (or "Kinds" with no groups)
+let HEADLINE = "title|summary|display_name|description|message";
+let TONE = {};                          // value -> badge tone (critical, high, medium, low, ok)
+let TONE_FIELDS = new Set();            // fields whose values render as toned badges
+let ORDINAL = {};                       // field -> values in rank order (sorting, tallies)
+let LABELS = {};                        // kind -> { fields, key: full|last|after@, suffix }
+let CARD_TAGS = ["status"];             // fields shown as badges on a first emission in the feed
+let BOARD = null;                       // optional joined board (e.g. findings with their verdicts)
+
+function applyConfig(c) {
+  COLUMNS = c.columns ?? {};
+  if (c.defaultColumns) DEFAULT_COLUMNS = c.defaultColumns;
+  KIND_GROUPS = c.groups ?? [];
+  if (c.headline) HEADLINE = c.headline.join("|");
+  TONE = c.tones ?? {};
+  TONE_FIELDS = new Set(c.toneFields ?? []);
+  ORDINAL = c.ordinals ?? {};
+  LABELS = c.labels ?? {};
+  if (c.cardTags) CARD_TAGS = c.cardTags;
+  BOARD = c.board ?? null;
+  Timeline.setTouches(c.touches ?? {});
+}
+// The kinds a board view covers: its own and the kind joined to it.
+const boardKinds = () => (BOARD ? [BOARD.kind, BOARD.join?.kind].filter(Boolean) : []);
+const isBoard = (view) => BOARD != null && view === BOARD.id;
+// How a key reads where it is shown alone: "last" = after the last "/", "after@" = after "@".
+function keyDisplay(mode, key) {
+  if (mode === "last") return key.split("/").pop();
+  if (mode === "after@") return key.split("@")[1] || "?";
+  return key;
+}
+// Same rank rule as before configs: a value missing from the order ranks -1 (first).
+const rankIn = (order, v) => order.indexOf(v);
+
+/* Columns for a kind: the config's, else the fields sl declares as preview_fields, else the
+   most common fields in the data (so a store with no config still reads well). */
+function columnsFor(kind, rows) {
+  if (COLUMNS[kind]) return COLUMNS[kind];
+  const preview = state.schema[kind]?.preview_fields ?? [];
+  if (preview.length) return preview.map((f) => [f, titleCase(f)]);
+  const seen = new Map();
+  for (const r of rows) for (const [f, v] of Object.entries(r.payload ?? {})) {
+    if (f === "name" || v == null || v === "" || typeof v === "object") continue;
+    seen.set(f, (seen.get(f) ?? 0) + 1);
+  }
+  const common = [...seen].sort((x, y) => y[1] - x[1]).slice(0, 4).map(([f]) => [f, titleCase(f)]);
+  return common.length ? common : DEFAULT_COLUMNS;
+}
+const titleCase = (f) => f.replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+/* ===================== State ===================== */
+
+const state = {
+  vertex: "loops",          // replaced by the vertex name /api/state reports
+  schema: {},
+  rows: [],
+  byAddress: new Map(),
+  inbound: new Map(),     // address -> [{predicate, from}]
+  head: 0,
+  oldestSeq: null,
+  view: null,             // set from the hash: the board if the config has one, else the largest kind
+  filter: "",
+  showInactive: false,
+  fresh: new Set(),       // addresses touched since last render, for the row flash
+  bumped: new Map(),      // kind -> count of live emissions since load
+  range: { active: false }, // time-range summary from timeline.js; survives refolds and view switches
+  onlyRange: false,       // show only rows the range touched
+  sort: new Map(),        // view -> { col, dir } once a header was clicked; otherwise the view's own order
+  feedUnseen: 0,          // emissions that arrived while the feed was collapsed
+};
+
+/* ===================== Small helpers ===================== */
+
+/* replaceChildren with h()'s child rule: null and false are skipped, not rendered as text. */
+function fill(parent, ...children) {
+  parent.replaceChildren(...children.flat().filter((c) => c != null && c !== false));
+  return parent;
+}
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "dataset") Object.assign(el.dataset, v);
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const pick = (payload, spec) => {
+  for (const f of spec.split("|")) if (payload?.[f] != null && payload[f] !== "") return payload[f];
+  return "";
+};
+const visibleFields = (payload) => Object.entries(payload || {}).filter(([k]) => !k.endsWith("_ref"));
+const isRef = (v) => typeof v === "string" && /^[a-z][a-z-]*:[^\s,]+(,[a-z][a-z-]*:[^\s,]+)*$/.test(v)
+  && v.split(",").every((p) => state.schema[p.slice(0, p.indexOf(":"))]);
+const addrOf = (kind, key) => `${kind}/${key}`;
+const shortKey = (key) => key.length > 48 ? key.slice(0, 22) + "…" + key.slice(-22) : key;
+
+const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const dtf = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+function relative(tsSeconds) {
+  const diff = tsSeconds - Date.now() / 1000;
+  const abs = Math.abs(diff);
+  if (abs < 45) return "just now";
+  const units = [["minute", 60, 3600], ["hour", 3600, 86400], ["day", 86400, 86400 * 30], ["month", 86400 * 30, 86400 * 365]];
+  for (const [unit, size, limit] of units) if (abs < limit) return rtf.format(Math.round(diff / size), unit);
+  return rtf.format(Math.round(diff / (86400 * 365)), "year");
+}
+function timeEl(ts) {
+  return h("time", { datetime: new Date(ts * 1000).toISOString(), title: dtf.format(new Date(ts * 1000)), dataset: { ts } }, relative(ts));
+}
+
+function badge(value, field) {
+  const tone = TONE_FIELDS.has(field) ? TONE[String(value)] : undefined;
+  return h("span", { class: "badge", dataset: tone ? { tone } : {} }, String(value));
+}
+
+function refLink(address) {
+  const i = address.indexOf(":");
+  const kind = address.slice(0, i), key = address.slice(i + 1);
+  // A kind whose keys are paths (labels.<kind>.key = "last") shows the last segment, the part people recognise.
+  const label = LABELS[kind]?.key === "last" ? keyDisplay("last", key) : shortKey(key);
+  return h("a", { href: "#" + encodeHash(kind, key), class: "mono", title: address }, label);
+}
+
+function renderValue(field, value, { clamp = false } = {}) {
+  if (value == null || value === "") return "";
+  if (TONE_FIELDS.has(field)) return badge(value, field);
+  if (isRef(value)) return h("span", { class: "chips" }, value.split(",").map(refLink));
+  if (/^https?:\/\//.test(value)) return h("a", { href: value, target: "_blank", rel: "noreferrer noopener" }, value);
+  const text = String(value);
+  if (/^\S{1,40}$/.test(text)) return h("span", { class: "ident" }, text);   // an identifier stays whole
+  return clamp ? h("span", { class: "clamp" }, text) : text;
+}
+
+/* ===================== Routing (#kind or #kind/key) ===================== */
+
+function encodeHash(kind, key) { return key == null ? kind : `${kind}/${encodeURIComponent(key)}`; }
+function readHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return { view: defaultView() };
+  const i = raw.indexOf("/");
+  if (i < 0) return { view: decodeURIComponent(raw) };
+  return { view: raw.slice(0, i), key: decodeURIComponent(raw.slice(i + 1)) };
+}
+function defaultView() {
+  if (BOARD) return BOARD.id;
+  const counts = {};
+  for (const r of state.rows) counts[r.kind] = (counts[r.kind] || 0) + 1;
+  return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] ?? "";
+}
+function applyHash() {
+  const { view, key } = readHash();
+  if (key != null) {
+    openDetail(view, key);
+    return;
+  }
+  if (detail.open) detail.close();
+  setView(view);
+}
+
+/* ===================== Data ===================== */
+
+async function getJSON(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+async function loadState() {
+  const data = await getJSON("/api/state");
+  state.vertex = data.vertex || state.vertex;
+  state.schema = data.schema || {};
+  state.rows = data.rows || [];
+  state.head = Math.max(state.head, data.head || 0);
+  state.byAddress = new Map(state.rows.map((r) => [addrOf(r.kind, r.key), r]));
+  state.inbound = new Map();
+  for (const r of state.rows) {
+    for (const e of r.edges || []) {
+      const target = e.address.replace(":", "/");
+      if (!state.inbound.has(target)) state.inbound.set(target, []);
+      state.inbound.get(target).push({ predicate: e.predicate, from: r });
+    }
+  }
+}
+
+function isActive(row) {
+  const lc = state.schema[row.kind]?.lifecycle;
+  return !lc || lc.active.includes(row.payload?.[lc.field]);
+}
+
+/* ===================== Header + rail ===================== */
+
+function renderStats() {
+  const stats = document.getElementById("stats");
+  const kinds = new Set(state.rows.map((r) => r.kind)).size;
+  stats.replaceChildren(
+    h("span", {}, h("b", {}, state.rows.length.toLocaleString()), " entities"),
+    h("span", {}, h("b", {}, kinds), " kinds"),
+    h("span", {}, "seq ", h("b", { class: "mono" }, "#" + state.head)),
+  );
+  const name = document.getElementById("store-name");
+  name.textContent = state.vertex[0].toUpperCase() + state.vertex.slice(1) + " store";
+  name.title = `${state.vertex}.vertex`;
+  document.title = name.textContent;
+}
+
+/* While a range replays, an entity appears once its first emission has played (timeline.js). */
+const present = (r) => tl.existsAt(addrOf(r.kind, r.key));
+
+function renderRail() {
+  const counts = {};
+  for (const r of state.rows) if (present(r) && (state.showInactive || isActive(r))) counts[r.kind] = (counts[r.kind] || 0) + 1;
+  const kinds = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const item = (view, label, count) => {
+    const bumped = state.range.active ? rangeCount(view) : state.bumped.get(view);
+    const why = state.range.active ? `${bumped} emission${bumped === 1 ? "" : "s"} in the selected time range` : `${bumped} new since you opened this page`;
+    return h("li", {}, h("button", {
+      type: "button", "aria-current": state.view === view ? "true" : "false",
+      onclick: () => { location.hash = view; },
+    }, h("span", {}, label), h("span", { class: "count" },
+      bumped ? h("span", { class: "bump", title: why }, `+${bumped} `) : null,
+      count ?? "")));
+  };
+  const boardCount = BOARD ? state.rows.filter((r) => r.kind === BOARD.kind && isActive(r) && present(r)).length : 0;
+  const listed = new Set(KIND_GROUPS.flatMap(([, ks]) => ks));
+  const groups = [...KIND_GROUPS, [KIND_GROUPS.length ? "Other" : "Kinds", kinds.filter((k) => !listed.has(k))]]
+    .map(([name, ks]) => [name, ks.filter((k) => counts[k])])
+    .filter(([, ks]) => ks.length);
+  document.getElementById("kinds").replaceChildren(
+    BOARD ? item(BOARD.id, BOARD.title, boardCount) : null,
+    BOARD ? h("li", { class: "sep", "aria-hidden": "true" }) : null,
+    ...groups.map(([name, ks]) => {
+      const id = "group-" + name.toLowerCase();
+      return h("li", { class: "group" }, h("h3", { id }, name),
+        h("ul", { "aria-labelledby": id }, ks.map((k) => item(k, k, counts[k]))));
+    }),
+  );
+}
+
+/* ===================== Views ===================== */
+
+function setView(view) {
+  state.view = view;
+  state.bumped.delete(view);
+  renderRail();
+  renderContent();
+  if (document.getElementById("feed-follow-view").checked) renderFeedFilter();
+}
+
+function matchesFilter(row) {
+  if (state.range.active && state.onlyRange && !state.range.touched.has(addrOf(row.kind, row.key))) return false;
+  if (!state.filter) return true;
+  const hay = (row.key + " " + JSON.stringify(row.payload)).toLowerCase();
+  return state.filter.split(/\s+/).every((t) => hay.includes(t));
+}
+
+function renderContent() {
+  // The timeline can report a ?from/?to range before boot has the config and rows; boot renders then.
+  if (state.view == null) return;
+  const content = document.getElementById("content");
+  if (isBoard(state.view)) return renderBoard(content);
+  const kind = state.view;
+  const rows = state.rows
+    .filter((r) => r.kind === kind && present(r) && (state.showInactive || isActive(r)) && matchesFilter(r))
+    .sort((a, b) => b.ts - a.ts);
+  const total = state.rows.filter((r) => r.kind === kind && present(r)).length;
+  const lc = state.schema[kind]?.lifecycle;
+  const shown = state.rows.filter((r) => r.kind === kind && present(r) && (state.showInactive || isActive(r)));
+  const { columns, folded } = foldConstantColumns(shown, columnsFor(kind, shown));
+  keepScroll(content, () => fill(content,
+    h("div", { class: "view-head" },
+      h("h2", {}, kind),
+      h("span", { class: "sub", id: "view-sub" }, `${rows.length} of ${total} · ${orderText(kind, "newest change first")}`,
+        folded.length ? " · " + folded.join(", ") : null),
+      lc ? h("label", {}, h("input", { type: "checkbox", checked: state.showInactive, onchange: (e) => { state.showInactive = e.target.checked; renderRail(); renderContent(); } }),
+        `Show inactive (${lc.field} not ${lc.active.join("/")})`) : null),
+    rangeBar([kind]),
+    entityTable(kind, rows, columns),
+  ));
+}
+
+/* A column holding the same value on every row says nothing per row: drop it and say the value
+   once in the subheading ("Status known on every row"). Judged on all rows of the kind (not the
+   filtered ones), so columns don't come and go while typing a filter. An all-empty column is dropped. */
+function foldConstantColumns(rows, columns) {
+  if (rows.length < 4) return { columns, folded: [] };
+  const folded = [];
+  const kept = columns.filter(([spec, label]) => {
+    if (typeof spec !== "string") return true;
+    const values = new Set(rows.map((r) => String(pick(r.payload, spec))));
+    if (values.size !== 1) return true;
+    const [v] = values;
+    if (v) folded.push(`${label} ${v} on every row`);
+    return false;
+  });
+  return { columns: kept, folded };
+}
+
+/* Re-rendering replaces the table; keep where the reader had scrolled it to. */
+function keepScroll(content, render) {
+  const old = content.querySelector(".table-wrapper");
+  const at = old ? [old.scrollTop, old.scrollLeft] : null;
+  render();
+  const wrapper = content.querySelector(".table-wrapper");
+  if (at && wrapper) [wrapper.scrollTop, wrapper.scrollLeft] = at;
+}
+
+/* ---------- Sorting (sortable-table guide) ----------
+   A header click moves the existing rows; the choice is kept per view and applied again when the
+   table is rebuilt (filter, live re-fold). Until a header is clicked a view keeps its own order. */
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+function sortValue(col, r) {
+  if (col.value) return col.value(r);
+  const field = col.spec.split("|")[0], v = pick(r.payload, col.spec);
+  if (ORDINAL[field]) { const i = ORDINAL[field].indexOf(v); return i < 0 ? ORDINAL[field].length : i; }
+  return String(v);
+}
+function compareBy(col, dir) {
+  const f = dir === "ascending" ? 1 : -1;
+  return (a, b) => {
+    const x = sortValue(col, a), y = sortValue(col, b);
+    return f * (typeof x === "number" && typeof y === "number" ? x - y : collator.compare(String(x), String(y)));
+  };
+}
+function orderText(view, fallback) {
+  const s = state.sort.get(view);
+  return s ? `sorted by ${s.label}, ${s.dir}` : fallback;
+}
+const SORT_ICON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 2 9 8H1z" fill="currentColor"/></svg>';
+function sortButton(view, col, i) {
+  const b = h("button", { type: "button", onclick: () => sortBy(view, b.closest("table"), i) }, col.label);
+  b.insertAdjacentHTML("beforeend", SORT_ICON);
+  return b;
+}
+function sortBy(view, table, i) {
+  const cols = table._cols, col = cols[i];
+  const prev = state.sort.get(view);
+  const dir = prev?.col === i && prev.dir === "ascending" ? "descending" : "ascending";
+  state.sort.set(view, { col: i, dir, label: col.label });
+  for (const th of table.tHead.rows[0].cells) th.removeAttribute("aria-sort");
+  table.tHead.rows[0].cells[i].setAttribute("aria-sort", dir);
+  const tbody = table.tBodies[0];
+  const trs = [...tbody.rows].filter((tr) => tr.dataset.address);
+  const byTr = new Map(trs.map((tr) => [tr, state.byAddress.get(tr.dataset.address)]));
+  trs.sort((a, b) => compareBy(col, dir)(byTr.get(a), byTr.get(b)));
+  for (const tr of trs) tbody.moveBefore ? tbody.moveBefore(tr, null) : tbody.append(tr);
+  const sub = document.getElementById("view-sub");
+  if (sub) sub.firstChild.textContent = sub.firstChild.textContent.replace(/·.*$/, "· " + orderText(view, ""));
+  document.getElementById("sort-status").textContent = `Sorted by ${col.label}, ${dir}, ${trs.length} rows`;
+}
+
+/* ---------- Time range (timeline.js) ---------- */
+
+function rangeCount(view) {
+  const kinds = isBoard(view) ? boardKinds() : [view];
+  return kinds.reduce((n, k) => n + (state.range.perKind.get(k) || 0), 0);
+}
+/* Under the view heading while a range is set: the count, "only changed", and touched rows the
+   inactive filter hides (offered, never shown silently). */
+function rangeBar(kinds) {
+  const r = state.range;
+  if (!r.active) return null;
+  const touched = [...r.touched.keys()].map((a) => state.byAddress.get(a)).filter((row) => row && kinds.includes(row.kind));
+  const hidden = state.showInactive ? 0 : touched.filter((row) => !isActive(row)).length;
+  return h("div", { class: "range-bar" },
+    h("span", {}, `${touched.length} changed in the selected range`),
+    h("label", {}, h("input", { type: "checkbox", checked: state.onlyRange, onchange: (e) => { state.onlyRange = e.target.checked; renderContent(); } }), "Only changed rows"),
+    hidden ? h("span", {}, `${hidden} of them inactive and hidden · `,
+      h("button", { type: "button", onclick: () => { state.showInactive = true; renderRail(); renderContent(); } }, "show inactive")) : null);
+}
+
+function entityTable(kind, rows, columns, { rowHeader = null, updated = true, view = kind } = {}) {
+  const captionId = "cap-" + kind.replace(/\W/g, "");
+  const cols = updated ? [...columns, ["__updated", "Updated"]] : columns;
+  // Every column, the key column first, as a sort definition.
+  const sortCols = [
+    rowHeader ? { label: rowHeader.label, value: rowHeader.value } : { label: "Key", value: (r) => r.key },
+    ...cols.map(([spec, label, value]) => spec === "__updated" ? { label, value: (r) => r.ts }
+      : typeof spec === "function" ? { label, value } : { label, spec }),
+  ];
+  const saved = state.sort.get(view);
+  if (saved && sortCols[saved.col]) rows = rows.slice().sort(compareBy(sortCols[saved.col], saved.dir));
+  const table = h("table", {},
+    h("caption", { id: captionId, class: "visually-hidden" }, `${kind} entities`),
+    h("thead", {}, h("tr", {}, sortCols.map((col, i) => h("th", {
+      scope: "col", "aria-sort": saved?.col === i ? saved.dir : null,
+    }, col.value || col.spec ? sortButton(view, col, i) : col.label)))),
+    h("tbody", {}, rows.length ? rows.map((r) => entityRow(r, cols, rowHeader)) :
+      h("tr", {}, h("td", { colspan: cols.length + 1, class: "empty" }, state.filter ? "No rows match the filter." : "Nothing here yet."))),
+  );
+  table._cols = sortCols;
+  cols.forEach(([, label], i) => table.style.setProperty(`--label-${i + 2}`, JSON.stringify(label)));
+  return h("div", { class: "table-wrapper", tabindex: "0", role: "region", "aria-labelledby": captionId }, table);
+}
+
+function entityRow(r, cols, rowHeader) {
+  const address = addrOf(r.kind, r.key);
+  const tr = h("tr", {
+    dataset: { address },
+    onclick: (e) => { if (!e.target.closest("a")) location.hash = encodeHash(r.kind, r.key); },
+  },
+    rowHeader ? h("th", { scope: "row", class: "titled" }, rowHeader.render(r)) :
+    h("th", { scope: "row" }, h("a", { href: "#" + encodeHash(r.kind, r.key) }, shortKey(r.key)),
+      r.payload?.verified === "agent" ? [" ", badge("unverified", "verified")] : null),
+    cols.map(([spec]) => {
+      if (spec === "__updated") return h("td", {}, timeEl(r.ts));
+      if (typeof spec === "function") return h("td", {}, spec(r));
+      const field = spec.split("|")[0];
+      return h("td", {}, renderValue(field, pick(r.payload, spec), { clamp: true }));
+    }),
+  );
+  if (!isActive(r)) tr.dataset.inactive = "";
+  if (state.fresh.has(address)) tr.dataset.fresh = "";
+  const t = state.range.active && state.range.touched.get(address);
+  if (t) {
+    tr.dataset.inRange = t.isNew ? "new" : "updated";
+    tr.firstElementChild.append(h("span", { class: "in-range-tag", title: `${t.n} emission${t.n === 1 ? "" : "s"} in the selected range` }, t.isNew ? "new in range" : "changed in range"));
+  }
+  return tr;
+}
+
+/* ---------- Board (config `board`): one kind, joined with the entities of another kind that
+   reference it (e.g. findings with their reachability verdicts), worst first. ---------- */
+
+function joinedFor(key) {
+  const j = BOARD.join;
+  if (!j) return [];
+  const order = ORDINAL[j.field] ?? [];
+  return (state.inbound.get(addrOf(BOARD.kind, key)) || [])
+    .filter((x) => x.from.kind === j.kind && x.predicate === j.predicate && present(x.from))
+    .map((x) => x.from)
+    .sort((a, b) => rankIn(order, a.payload[j.field]) - rankIn(order, b.payload[j.field]));
+}
+
+function worstJoinRank(key) {
+  const order = ORDINAL[BOARD.join?.field] ?? [];
+  const rs = joinedFor(key);
+  return rs.length ? rankIn(order, rs[0].payload[BOARD.join.field]) : order.length;
+}
+
+function renderBoard(content) {
+  const B = BOARD, j = B.join, rh = B.rowHeader ?? {};
+  const own = state.rows.filter((r) => r.kind === B.kind && present(r) && (state.showInactive || isActive(r)));
+  const badgeOrder = ORDINAL[rh.badge] ?? [];
+  const shown = own.filter(matchesFilter).sort((a, b) =>
+    (rh.badge ? rankIn(badgeOrder, a.payload[rh.badge]) - rankIn(badgeOrder, b.payload[rh.badge]) : 0) ||
+    (j ? worstJoinRank(a.key) - worstJoinRank(b.key) : 0) || (b.ts - a.ts));
+
+  const tally = (items, field) => {
+    const order = ORDINAL[field] ?? [], c = {};
+    for (const r of items) c[r.payload[field] ?? "—"] = (c[r.payload[field] ?? "—"] || 0) + 1;
+    return Object.keys(c).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+      .map((k) => h("span", { class: "badge", dataset: TONE[k] ? { tone: TONE[k] } : {} }, h("b", {}, c[k]), " ", k));
+  };
+  // A tile counts the board's own rows, or every present row of another kind. With `empty`,
+  // only rows that have the field count, and the text stands in when none do.
+  const tile = (t) => {
+    let items = t.kind === B.kind ? own : state.rows.filter((r) => r.kind === t.kind && present(r));
+    if (t.empty) items = items.filter((r) => r.payload[t.field]);
+    return h("section", { class: "tile" }, h("h3", {}, t.title),
+      h("div", { class: "bars" }, items.length || !t.empty ? tally(items, t.field) : h("span", { class: "sub" }, t.empty)));
+  };
+
+  const joinCell = (r) => {
+    const rs = joinedFor(r.key);
+    if (!rs.length) return h("span", { class: "sub" }, "—");
+    return h("span", { class: "chips" }, rs.map((x) => h("a", {
+      href: "#" + encodeHash(j.kind, x.key), class: "badge",
+      dataset: { tone: TONE[x.payload[j.field]] || "" }, title: (j.title && x.payload[j.title]) || x.key,
+    }, `${keyDisplay(j.key, x.key)} · ${x.payload[j.field]}`)));
+  };
+  const columns = [...(j ? [[joinCell, j.label ?? j.kind, (r) => worstJoinRank(r.key)]] : []), ...(B.columns ?? [])];
+  const title = (r) => (rh.field && r.payload[rh.field]) || r.key;
+
+  keepScroll(content, () => fill(content,
+    h("div", { class: "view-head" },
+      h("h2", {}, B.title),
+      h("span", { class: "sub", id: "view-sub" }, `${shown.length} ${B.kind}s · ${orderText(B.id, B.order ?? "newest change first")}${j ? `, joined with ${j.kind}` : ""}`)),
+    B.tiles?.length ? h("div", { class: "tiles" }, B.tiles.map(tile)) : null,
+    rangeBar([B.kind]),
+    entityTable(B.kind, shown, columns,
+      { updated: false, view: B.id, rowHeader: { label: rh.label ?? B.kind, value: title, render: (r) => [
+        h("a", { href: "#" + encodeHash(r.kind, r.key), class: "clamp" }, title(r)),
+        h("span", { class: "key-under" }, rh.badge && r.payload[rh.badge] ? [badge(r.payload[rh.badge], rh.badge), " "] : null,
+          r.key + (rh.detail && r.payload[rh.detail] ? " · " + r.payload[rh.detail] : "")),
+      ] } }),
+  ));
+}
+
+/* ===================== Detail dialog ===================== */
+
+const detail = document.getElementById("detail");
+
+let openAddress = null;
+async function openDetail(kind, key) {
+  openAddress = addrOf(kind, key);
+  if (state.view !== kind && !isBoard(state.view)) setView(kind);
+  const row = state.byAddress.get(addrOf(kind, key));
+  document.getElementById("detail-kind").textContent = kind;
+  document.getElementById("detail-title").textContent = key;
+  document.getElementById("detail-sub").textContent = row ? pick(row.payload, HEADLINE) : "Not in the folded state (inactive or unknown).";
+  const body = document.getElementById("detail-body");
+  body.replaceChildren(h("p", { class: "sub" }, "Loading history…"));
+  if (!detail.open) detail.showModal();
+
+  const sections = [];
+  if (row) {
+    sections.push(h("section", {}, h("h3", {}, "Current fields"),
+      h("dl", { class: "fields" }, visibleFields(row.payload).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, renderValue(k, v))]))));
+    const inbound = state.inbound.get(addrOf(kind, key)) || [];
+    if (inbound.length) {
+      sections.push(h("section", {}, h("h3", {}, `Referenced by (${inbound.length})`),
+        h("div", { class: "inbound" }, inbound.map(({ predicate, from }) =>
+          h("a", { href: "#" + encodeHash(from.kind, from.key), class: "badge", title: `${from.kind}/${from.key} → ${predicate}` },
+            h("span", { class: "mono" }, from.kind), " ", shortKey(from.key))))));
+    }
+  }
+  try {
+    const { facts } = await getJSON(`/api/history?kind=${encodeURIComponent(kind)}&key=${encodeURIComponent(key)}`);
+    sections.push(h("section", {}, h("h3", {}, `History (${facts.length} emission${facts.length === 1 ? "" : "s"})`),
+      h("ol", { class: "timeline" }, facts.map((f, i) => h("li", {},
+        h("div", { class: "meta" }, timeEl(f.ts), " · ", h("span", { class: "mono" }, f.observer), " · #" + f.seq),
+        diffView(f.before, f.payload, { full: true }))).reverse())));
+  } catch (err) {
+    sections.push(h("p", { class: "error" }, "Could not load history: " + err.message));
+  }
+  body.replaceChildren(...sections);
+}
+
+detail.addEventListener("close", () => {
+  const { view, key } = readHash();
+  if (key != null) history.replaceState(null, "", "#" + encodeHash(isBoard(state.view) ? state.view : view));
+});
+// Light-dismiss fallback for browsers without <dialog closedby> (Safari): test the pointer
+// position against the dialog box, pressing and releasing outside.
+if (!("closedBy" in HTMLDialogElement.prototype)) {
+  const outside = (e) => {
+    const r = detail.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  let pressedOutside = false;
+  detail.addEventListener("pointerdown", (e) => { pressedOutside = outside(e); });
+  detail.addEventListener("pointerup", (e) => { if (pressedOutside && outside(e)) detail.close(); });
+}
+
+/* ===================== Diffs ===================== */
+
+const SHORT = 90;
+function diffView(prev, next, { full = false } = {}) {
+  if (!prev) {
+    const headline = pick(next, HEADLINE);
+    const tags = CARD_TAGS.filter((f) => next[f]).map((f) => badge(next[f], f));
+    return h("div", { class: "diff" },
+      h("div", {}, h("span", { class: "f" }, "first emission"), tags),
+      headline && !full ? h("div", { class: "what" }, clampText(headline, 200)) : null,
+      full ? h("dl", { class: "fields" }, visibleFields(next).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, renderValue(k, v))])) : null);
+  }
+  // A re-emit merges: fields it omits keep their value, so only its own fields can change.
+  const changed = Object.keys(next).filter((k) => !k.endsWith("_ref") && JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+  if (!changed.length) return h("div", { class: "diff" }, h("div", { class: "what" }, "Re-emitted with no field changes."));
+  return h("div", { class: "diff" }, changed.map((k) => {
+    const a = prev[k] == null ? "" : String(prev[k]);
+    const b = next[k] == null ? "" : String(next[k]);
+    if (a.length <= SHORT && b.length <= SHORT) {
+      return h("div", {}, h("span", { class: "f" }, k),
+        a ? h("del", {}, a) : null, a && b ? " → " : null,
+        b ? (TONE_FIELDS.has(k) ? badge(b, k) : h("ins", {}, b)) : h("em", {}, " cleared"));
+    }
+    return h("div", {}, h("span", { class: "f" }, k),
+      h("details", {}, h("summary", {}, b ? clampText(b, 120) : "cleared"),
+        h("p", {}, h("ins", {}, b)), a ? h("p", {}, h("del", {}, a)) : null));
+  }));
+}
+function clampText(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+/* ===================== Feed ===================== */
+
+const feed = document.getElementById("feed");
+
+function emissionCard(f) {
+  const key = f.payload?.name ?? f.id;
+  return h("li", { class: "emission", dataset: { kind: f.kind, seq: f.seq } },
+    h("div", { class: "meta" },
+      h("span", { class: "kind-chip" }, f.kind),
+      f.before ? h("span", {}, "updated") : h("span", { class: "badge", dataset: { tone: "accent" } }, "new"),
+      timeEl(f.ts)),
+    h("a", { class: "key", href: "#" + encodeHash(f.kind, key) }, key),
+    diffView(f.before, f.payload),
+    h("div", { class: "observer" }, f.observer + "  ·  #" + f.seq));
+}
+
+function renderFeedFilter() {
+  const only = document.getElementById("feed-follow-view").checked;
+  const view = new Set(isBoard(state.view) ? boardKinds() : [state.view]);
+  for (const li of feed.children) li.hidden = only && !view.has(li.dataset.kind);
+}
+
+/* Each feed reset starts a new generation; a response from an older one (a range that has
+   since changed, e.g. mid-drag) is dropped instead of appended. */
+let feedGen = 0;
+async function loadOlder() {
+  const gen = feedGen;
+  const btn = document.getElementById("more");
+  btn.disabled = true;
+  if (state.range.active) {                    // the range's own emissions, newest first
+    const facts = await Timeline.loadFacts(state.range, feed.children.length);
+    if (gen !== feedGen) return;
+    feed.append(...facts.map(emissionCard));
+    btn.hidden = feed.children.length >= state.range.facts.length;
+    btn.disabled = false;
+    renderFeedFilter(); updateFeedSub();
+    return;
+  }
+  const q = state.oldestSeq ? `?before=${state.oldestSeq}&limit=60` : "?limit=60";
+  const { facts, head } = await getJSON("/api/facts" + q);
+  if (gen !== feedGen) return;
+  if (!state.oldestSeq) state.head = Math.max(state.head, head);
+  feed.append(...facts.map(emissionCard));
+  if (facts.length) state.oldestSeq = facts[facts.length - 1].seq;
+  btn.hidden = facts.length < 60;
+  btn.disabled = false;
+  renderFeedFilter();
+  updateFeedSub();
+}
+function updateFeedSub() {
+  document.getElementById("feed-sub").textContent = state.range.active
+    ? `${feed.children.length} of ${state.range.facts.length} in range · newest first`
+    : `${feed.children.length} shown · newest first`;
+}
+function resetFeed() { feedGen++; feed.replaceChildren(); state.oldestSeq = null; return loadOlder(); }
+
+/* ===================== Live stream ===================== */
+
+const live = document.getElementById("live");
+const liveText = document.getElementById("live-text");
+let lastEmissionTs = null;
+
+function setLive(s, text) { live.dataset.state = s; liveText.textContent = text; }
+function updateLiveText() {
+  if (live.dataset.state === "live") setLive("live", lastEmissionTs ? `Live · last emission ${relative(lastEmissionTs)}` : "Live");
+}
+
+function announce(text) {
+  if (typeof document.ariaNotify === "function") document.ariaNotify(text);
+  else { const r = document.getElementById("announce"); r.textContent = ""; requestAnimationFrame(() => { r.textContent = text; }); }
+}
+
+let refreshTimer = null;
+function connect() {
+  const es = new EventSource(`/api/stream?after=${state.head}`);
+  es.onopen = () => { setLive("live", "Live"); updateLiveText(); };
+  es.onerror = () => setLive("down", "Reconnecting…");
+  es.addEventListener("facts", (ev) => onFacts(JSON.parse(ev.data)));
+}
+/* Live arrivals. While a range replays they wait, and land once it ends (tl onChange). */
+const heldFacts = [];
+function onFacts(facts) {
+  if (!facts.length) return;
+  if (tl.inPlay) { heldFacts.push(...facts); return; }
+  state.head = Math.max(state.head, facts[facts.length - 1].seq);
+  lastEmissionTs = facts[facts.length - 1].ts;
+  tl.addFacts(facts);
+  for (const f of facts) {
+    // A fixed past range keeps its feed; "up to now" and no range show live arrivals.
+    if (!state.range.active || (state.range.live && (!state.range.by || state.range.by === f.observer))) {
+      feed.prepend(emissionCard(f));
+      if (shell.dataset.feed === "closed") state.feedUnseen++;
+    }
+    // Same rule as the time range: a fact also shows on the entity its `touches` field names.
+    for (const a of Timeline.touchedBy(Timeline.entryOf(f))) state.fresh.add(a);
+    const view = boardKinds().includes(f.kind) ? [BOARD.id, f.kind] : [f.kind];
+    for (const v of view) if (v !== state.view) state.bumped.set(v, (state.bumped.get(v) || 0) + 1);
+  }
+  renderFeedFilter();
+  updateFeedSub();
+  renderFeedUnseen();
+  updateLiveText();
+  const first = facts[facts.length - 1];
+  announce(facts.length === 1
+    ? `New emission: ${first.kind} ${first.payload?.name ?? ""}`
+    : `${facts.length} new emissions, latest ${first.kind} ${first.payload?.name ?? ""}`);
+  // Re-fold once a burst settles; sl is the authority on folded state.
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
+    try {
+      await loadState();
+      renderStats(); renderRail(); renderContent();
+      // Follow an open entity live: re-render its detail when it was just emitted.
+      if (detail.open && state.fresh.has(openAddress)) {
+        const i = openAddress.indexOf("/");
+        openDetail(openAddress.slice(0, i), openAddress.slice(i + 1));
+      }
+      state.fresh.clear();
+    } catch (err) { console.error(err); }
+  }, 600);
+}
+
+/* ===================== Boot ===================== */
+
+document.getElementById("search").addEventListener("input", (e) => {
+  state.filter = e.target.value.trim().toLowerCase();
+  renderContent();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !detail.open && document.activeElement?.tagName !== "INPUT") {
+    e.preventDefault(); document.getElementById("search").focus();
+  }
+});
+document.getElementById("feed-follow-view").addEventListener("change", renderFeedFilter);
+
+/* Collapsible feed, remembered in this browser only. While closed, its button counts arrivals. */
+const shell = document.getElementById("shell");
+function setFeedOpen(open, { focus = false } = {}) {
+  shell.dataset.feed = open ? "open" : "closed";
+  document.getElementById("feed-hide").setAttribute("aria-expanded", String(open));
+  document.getElementById("feed-show").setAttribute("aria-expanded", String(open));
+  if (open) { state.feedUnseen = 0; renderFeedUnseen(); }
+  try { localStorage.setItem("tables-feed", open ? "open" : "closed"); } catch { /* storage blocked: lasts for this page only */ }
+  if (focus) document.getElementById(open ? "feed-hide" : "feed-show").focus();
+}
+function renderFeedUnseen() {
+  const n = state.feedUnseen;
+  document.getElementById("feed-unseen").textContent = n ? `+${n}` : "";
+  document.getElementById("feed-show").setAttribute("aria-label", n ? `Show emissions, ${n} new` : "Show emissions");
+}
+document.getElementById("feed-hide").addEventListener("click", () => setFeedOpen(false, { focus: true }));
+document.getElementById("feed-show").addEventListener("click", () => setFeedOpen(true, { focus: true }));
+setFeedOpen((() => { try { return localStorage.getItem("tables-feed") !== "closed"; } catch { return true; } })());
+document.getElementById("more").addEventListener("click", () => loadOlder());
+window.addEventListener("hashchange", applyHash);
+setInterval(() => {
+  for (const t of document.querySelectorAll("time[data-ts]")) t.textContent = relative(Number(t.dataset.ts));
+  updateLiveText();
+}, 30_000);
+
+const timelineEl = document.getElementById("timeline");
+const timeBtn = document.getElementById("time-btn");
+function showTimeline(open) {
+  timelineEl.hidden = !open;
+  timeBtn.setAttribute("aria-expanded", String(open));
+  if (open) tl.redraw();
+}
+timeBtn.addEventListener("click", () => showTimeline(timelineEl.hidden));
+let rangeReady = false, rangeSettle = null;
+const tl = Timeline.create({
+  mount: timelineEl,
+  onChange(summary) {
+    const changed = summary.active || state.range.active;
+    state.range = summary;
+    if (!summary.active) state.onlyRange = false;
+    if (summary.cause !== "step") state.fresh.clear();
+    renderRail(); renderContent();
+    if (rangeReady && changed && summary.cause !== "step") resetFeed().catch(console.error);
+    if (!summary.play && heldFacts.length) onFacts(heldFacts.splice(0));
+    if (summary.cause === "step") return;   // a replay doesn't re-announce the count on every pause between steps
+    // Announce once the range settles, not on every frame of a drag.
+    clearTimeout(rangeSettle);
+    rangeSettle = setTimeout(() => {
+      announce(summary.active ? `${summary.touched.size} entities changed in the selected range` : "Time range cleared");
+    }, 500);
+  },
+  // One replayed emission, through the same path as a live one: card on top of the feed, row flash.
+  onStep(f, summary) {
+    state.range = summary;           // onChange lands a frame later; the feed count needs this step's summary now
+    feed.prepend(emissionCard(f));
+    state.fresh.clear();
+    for (const a of Timeline.touchedBy(Timeline.entryOf(f))) state.fresh.add(a);
+    renderFeedFilter();
+    updateFeedSub();
+  },
+});
+
+(async function boot() {
+  try {
+    applyConfig(await getJSON("/api/config"));
+    await loadState();
+    state.view = readHash().view;   // the default view needs the config and the rows; render paths assume a view
+    tl.setIndex((await getJSON("/api/index")).facts);
+    if (tl.active) { showTimeline(true); state.range = tl.summary; }
+    await loadOlder();
+    rangeReady = true;
+    lastEmissionTs = feed.firstElementChild ? Number(feed.firstElementChild.querySelector("time").dataset.ts) : null;
+    renderStats();
+    renderRail();
+    renderContent();
+    applyHash();
+    connect();
+  } catch (err) {
+    document.getElementById("content").replaceChildren(h("p", { class: "error" }, "Could not load the store: " + err.message));
+    setLive("down", "Offline");
+  }
+})();
+</script>
+</body>
+</html>

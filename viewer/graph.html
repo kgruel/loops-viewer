@@ -1,0 +1,1916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Loops Graph</title>
+<style>
+/* Dark first: the graph reads best as light on a dark ground (lot-map's palette is the
+   starting point). Light mode keeps the same hues, darkened for contrast on paper. */
+:root {
+  color-scheme: dark light;
+
+  --ground: #0a0c11;
+  --ground-2: #10131a;
+  --panel: rgb(18 21 28 / 0.86);
+  --panel-solid: #12151c;
+  --ink: #ebe6dc;
+  --ink-2: #9ba1ab;
+  --ink-3: #6b717c;
+  --line: #272c36;
+  --edge: #8b93a3;
+  --contour: #1d222c;
+  --accent: #e1ac6e;
+  --focus: #f0c595;
+
+  --tone-critical: #ff6b5e;
+  --tone-high: #ff9f43;
+  --tone-medium: #e9c46a;
+  --tone-low: #8b949e;
+  --tone-ok: #5fd3a0;
+
+  --k-1: #7aa2f7;
+  --k-2: #8fa3b8;
+  --k-3: #c3a6ff;
+  --k-4: #9d8fe6;
+  --k-5: #62c7ba;
+  --k-6: #e1ac6e;
+  --k-7: #5f6673;
+  --k-8: #e58fc0;
+  --k-9: #6fc3df;
+  --k-10: #a3d18c;
+  --k-other: #7d8590;
+
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+
+  /* The shared header (chrome.js) reads these. */
+  --chrome-bg: var(--panel);
+  --chrome-field: var(--ground-2);
+  --chrome-ok: var(--tone-ok);
+  --chrome-bad: var(--tone-critical);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --ground: #f5f2ea;
+    --ground-2: #ece8de;
+    --panel: rgb(255 253 249 / 0.9);
+    --panel-solid: #fffdf9;
+    --ink: #1d1c1a;
+    --ink-2: #5b5852;
+    --ink-3: #8a867e;
+    --line: #dcd7cc;
+    --edge: #6b6760;
+    --contour: #e3ded2;
+    --accent: #b8762a;
+    --focus: #8a5410;
+
+    --tone-critical: #c5402b;
+    --tone-high: #c2620a;
+    --tone-medium: #a07800;
+    --tone-low: #7a7f87;
+    --tone-ok: #1f8a57;
+
+    --k-1: #3d64c9;
+    --k-2: #5f7287;
+    --k-3: #7b55d6;
+    --k-4: #6a5cc2;
+    --k-5: #1f8f84;
+    --k-6: #b8762a;
+    --k-7: #9a958b;
+    --k-8: #b8478a;
+    --k-9: #1d86a8;
+    --k-10: #4f8a2f;
+    --k-other: #8a867e;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+html { background: var(--ground); }
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--ink);
+  font: 13px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+
+#graph {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  touch-action: none;       /* pointer events drive pan, pinch and node drag */
+  cursor: grab;
+}
+#graph[data-cursor="pointer"] { cursor: pointer; }
+#graph[data-cursor="grabbing"] { cursor: grabbing; }
+
+.glass {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(10px);
+}
+
+/* ---------- Top bar ---------- */
+.top {
+  position: fixed; top: 12px; left: 12px; right: 12px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  pointer-events: none;     /* only the pieces take pointer events, so the gap stays pannable */
+}
+.top > * { pointer-events: auto; }
+.top > .chrome-spacer { pointer-events: none; }
+/* The shared header's groups float as pills over the canvas. */
+.top :is(.chrome-id, .chrome-actions, .live) {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(10px);
+}
+.top .chrome-id { padding: 4px 12px 4px 12px; min-height: 40px; }
+.top .chrome-actions { padding: 4px; }
+.top .chrome-actions .tl-toggle:not([aria-expanded="true"]) { border-color: transparent; }
+.top .live { padding: 0 12px; min-height: 40px; }
+
+.tools { display: flex; align-items: center; gap: 4px; }
+.tools button {
+  min-width: 32px; height: 30px; padding: 0 9px; white-space: nowrap;
+  border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.tools button:hover { background: var(--ground-2); color: var(--ink); }
+
+#graph:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; border-radius: 0; }
+
+/* ---------- Layout settings (popover) ---------- */
+.layout {
+  width: 270px; padding: 12px 14px; color: var(--ink);
+  background: var(--panel-solid);
+  /* Fallback without anchor positioning: a fixed spot under the toolbar. */
+  position: fixed; inset: calc(var(--header-h, 52px) + 8px) 12px auto auto; margin: 0;
+}
+@supports (position-area: block-end) {
+  .layout {
+    inset: auto; margin: 6px 0 0;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline;
+  }
+}
+.layout h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.layout .slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 8px; }
+.layout .slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.layout output { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 12px; }
+.layout fieldset { border: 0; margin: 4px 0 8px; padding: 0; display: flex; gap: 12px; flex-wrap: wrap; }
+.layout legend { padding: 0; margin-bottom: 4px; width: 100%; color: var(--ink-2); font-size: 12px; }
+.layout label { font-size: 12.5px; }
+.layout fieldset label, .layout .check { display: flex; gap: 6px; align-items: center; }
+.layout input[type="radio"], .layout input[type="checkbox"] { accent-color: var(--accent); }
+.layout .row { display: flex; gap: 6px; margin-top: 10px; }
+.layout .row button, .crumbs button, .panel-head .actions button {
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px;
+  background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.layout .row button:hover:not(:disabled), .crumbs button:hover, .panel-head .actions button:hover { background: var(--ground-2); color: var(--ink); }
+.layout .row button:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- Isolated-view trail ---------- */
+.crumbs {
+  position: fixed; top: calc(var(--header-h, 52px) + 10px); left: 50%; translate: -50% 0; z-index: 2;
+  max-width: calc(100vw - 24px);
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px;
+}
+.crumbs[hidden] { display: none; }
+.crumbs ol { display: flex; gap: 4px; margin: 0 4px; padding: 0; list-style: none; min-width: 0; overflow: hidden; }
+.crumbs li { display: flex; align-items: center; gap: 4px; white-space: nowrap; min-width: 0; }
+.crumbs li + li::before { content: "›"; color: var(--ink-3); }
+.crumbs ol button { border: 0; padding: 2px 6px; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; }
+.crumbs [aria-current] { font-weight: 600; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+.crumbs .more { color: var(--ink-3); }
+.crumbs .count { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; padding-right: 6px; }
+.panel-head .actions { display: flex; gap: 6px; margin-top: 8px; }
+.panel-head .actions:empty { display: none; }
+
+/* ---------- Search (combobox) ---------- */
+.search { position: relative; }
+.search input {
+  width: 100%; height: 38px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); color: var(--ink); backdrop-filter: blur(10px);
+}
+.search input::placeholder { color: var(--ink-3); }
+#results {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 3;
+  margin: 0; padding: 4px; list-style: none;
+  max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel-solid);
+}
+#results[hidden] { display: none; }
+#results li {
+  display: grid; grid-template-columns: 10px 1fr; gap: 2px 8px; align-items: center;
+  padding: 6px 8px; border-radius: 7px; cursor: pointer;
+}
+#results li[aria-selected="true"] { background: var(--ground-2); }
+#results .sub { grid-column: 2; color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#results .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+
+/* ---------- Legend ---------- */
+.legend {
+  position: fixed; left: 12px; bottom: 12px;
+  width: 230px; max-height: calc(100dvh - var(--header-h, 52px) - 40px); overflow: auto; overscroll-behavior: contain;
+  padding: 10px 12px;
+}
+.legend summary { cursor: pointer; font-weight: 600; font-size: 12px; color: var(--ink-2); }
+.legend ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.legend button {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; text-align: left;
+}
+.legend button:hover { background: var(--ground-2); }
+.legend button[aria-pressed="false"] { color: var(--ink-3); }
+.legend button[aria-pressed="false"] .swatch { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.legend .count { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.legend label { display: flex; gap: 6px; align-items: center; margin-top: 8px; color: var(--ink-2); font-size: 12px; }
+.legend .note { margin: 8px 0 0; color: var(--ink-3); font-size: 11.5px; }
+.legend .hint { margin: 6px 0 0; color: var(--ink-3); font-size: 11.5px; }
+
+/* ---------- Emission ticker ---------- */
+.ticker {
+  position: fixed; bottom: 12px; left: 254px; right: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+}
+.timeline { pointer-events: auto; width: min(760px, 100%); padding: 10px 12px; background: var(--panel-solid); }
+.timeline[hidden] { display: none; }
+.legend .count .plus { color: var(--accent); margin-right: 4px; }
+#range-note button { display: inline; width: auto; border: 0; padding: 0; background: none; color: var(--accent); cursor: pointer; }
+#range-note button:hover { text-decoration: underline; }
+.ticker ol {
+  margin: 0; padding: 4px; list-style: none; pointer-events: auto;
+  display: flex; flex-direction: column; gap: 2px; width: min(560px, 100%);
+}
+.ticker li { border-radius: 7px; }
+.ticker ol button {
+  width: 100%; display: grid; grid-template-columns: 10px auto 1fr auto; gap: 8px; align-items: center;
+  padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; text-align: left;
+}
+.ticker ol button:hover { background: var(--ground-2); }
+.ticker .what { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticker .key { font-weight: 600; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticker time { color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.ticker li:first-child .key { color: var(--accent); }
+.ticker li {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: opacity 0.4s ease-out, translate 0.4s ease-out;
+    @starting-style { opacity: 0; translate: 0 8px; }
+  }
+}
+.ticker li:nth-child(n+3) { opacity: 0.6; }
+
+/* Keep the ticker clear of the detail panel when it is open. */
+@media (width >= 760px) {
+  body:has(.panel:not([hidden])) .ticker { right: 404px; }
+}
+
+/* ---------- Detail panel ---------- */
+.panel {
+  position: fixed; top: calc(var(--header-h, 52px) + 12px); right: 12px; bottom: 12px;
+  width: min(380px, calc(100vw - 24px));
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.panel[hidden] { display: none; }
+.panel.arriving { pointer-events: none; }
+.panel-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.panel-head .row { display: flex; align-items: center; gap: 8px; }
+.panel-head h2 { margin: 6px 0 2px; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.panel-head .key { color: var(--ink-3); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+.panel-head .meta { margin: 6px 0 0; color: var(--ink-3); font-size: 11.5px; }
+.panel-head .close {
+  margin-left: auto; border: 0; background: transparent; color: var(--ink-2);
+  padding: 4px 8px; border-radius: 6px; cursor: pointer;
+}
+.panel-head .close:hover { background: var(--ground-2); color: var(--ink); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 1px 8px; border-radius: 999px; font-size: 11.5px;
+  background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--c);
+}
+.badge { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--ground-2); color: var(--ink-2); }
+.panel-body { padding: 8px 16px 16px; overflow-y: auto; overscroll-behavior: contain; }
+.panel-body h3 { margin: 14px 0 6px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.fields { margin: 0; display: grid; grid-template-columns: minmax(80px, auto) 1fr; gap: 4px 12px; }
+.fields dt { color: var(--ink-3); font-size: 12px; }
+.fields dd { margin: 0; overflow-wrap: anywhere; }
+.fields dd.long { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.links { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.links .pred { color: var(--ink-3); font-size: 11.5px; margin-top: 6px; }
+.links button {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; text-align: left;
+}
+.links button:hover { background: var(--ground-2); }
+.links button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref { border: 0; padding: 0; background: none; color: var(--accent); cursor: pointer; text-align: left; }
+.ref:hover { text-decoration: underline; }
+.open-tables { display: inline-block; margin-top: 14px; }
+
+/* ---------- Tooltip ---------- */
+.tip {
+  position: fixed; left: 0; top: 0; z-index: 4;
+  max-width: 300px; padding: 7px 10px;
+  pointer-events: none;
+  background: var(--panel-solid);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+}
+.tip[hidden] { display: none; }
+.tip .k { color: var(--ink-3); font-size: 11px; }
+.tip .t { font-weight: 600; }
+.tip .s { color: var(--ink-2); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+.error { position: fixed; top: calc(var(--header-h, 52px) + 18px); left: 12px; padding: 10px 12px; color: var(--tone-critical); }
+
+/* ---------- Narrow screens: legend collapses, panel becomes a bottom sheet ---------- */
+@media (width < 760px) {
+  /* Graph has more tools than fit beside the switch: they get their own row. */
+  header[data-chrome].top > .chrome-actions { order: 3; flex: 1 1 100%; scrollbar-width: thin; }
+  header[data-chrome].top > .live { order: 2; }
+  .legend { width: auto; right: 12px; max-height: 40vh; }
+  .legend:not([open]) { right: auto; }
+  .ticker { display: none; }
+  /* Phones: the time range replaces the ticker at the bottom when it is open. */
+  body:has(#timeline:not([hidden])) .ticker { display: flex; left: 12px; }
+  body:has(#timeline:not([hidden])) .ticker ol { display: none; }
+  body:has(#timeline:not([hidden])) .legend { display: none; }
+  .panel { top: auto; height: 55vh; }
+  .crumbs .count { display: none; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="graph" tabindex="0" role="region"
+        aria-label="Knowledge graph of the store. Arrow keys pan; Enter isolates the selected entity.">
+  A force-directed graph of the store. Use the search box to find an entity and open its details.
+</canvas>
+
+<header class="top" data-chrome="graph">
+  <div class="search" data-slot="search">
+    <input id="search" type="search" placeholder="Find an entity  ( / )" autocomplete="off" spellcheck="false"
+           role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list" aria-label="Find an entity">
+    <ul id="results" class="glass" role="listbox" aria-label="Matching entities" hidden></ul>
+  </div>
+  <div class="tools" data-slot="tools" role="group" aria-label="View controls">
+    <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+    <button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+    <button type="button" id="fit" title="Fit the graph (0)">Fit</button>
+    <button type="button" id="layout-btn" popovertarget="layout">Layout</button>
+    <button type="button" id="pause">Pause motion</button>
+  </div>
+</header>
+<script src="/chrome.js"></script>
+
+<div class="layout glass" id="layout" popover aria-labelledby="layout-title">
+  <h2 id="layout-title">Layout</h2>
+  <div class="slider">
+    <label for="set-spacing">Spacing</label><output id="out-spacing" for="set-spacing"></output>
+    <input type="range" id="set-spacing" data-key="spacing" min="0.4" max="3" step="0.1">
+  </div>
+  <div class="slider">
+    <label for="set-linkLength">Link length</label><output id="out-linkLength" for="set-linkLength"></output>
+    <input type="range" id="set-linkLength" data-key="linkLength" min="0.5" max="3" step="0.1">
+  </div>
+  <div class="slider">
+    <label for="set-gravity">Pull to centre</label><output id="out-gravity" for="set-gravity"></output>
+    <input type="range" id="set-gravity" data-key="gravity" min="0" max="2" step="0.1">
+  </div>
+  <fieldset>
+    <legend>Isolate shows</legend>
+    <label><input type="radio" name="depth" value="1"> Direct links</label>
+    <label><input type="radio" name="depth" value="2"> Two hops</label>
+  </fieldset>
+  <label class="check"><input type="checkbox" id="set-pin"> Pin nodes where I drop them</label>
+  <div class="row">
+    <button type="button" id="unpin" disabled>Release pinned</button>
+    <button type="button" id="layout-reset">Reset</button>
+  </div>
+</div>
+
+<nav class="crumbs glass" id="crumbs" aria-label="Isolated view" hidden></nav>
+
+<details class="legend glass" id="legend" open>
+  <summary>Kinds</summary>
+  <ul id="kinds"></ul>
+  <label><input type="checkbox" id="inactive"> Show inactive</label>
+  <p class="note" id="source-note"></p>
+  <div class="note" id="range-note" hidden></div>
+  <p class="hint">Scroll to pan, pinch or ⌘/Ctrl‑scroll to zoom. Drag a node to pull it.
+    Double‑click a node to isolate it; click an edge to jump along it.</p>
+</details>
+
+<div class="ticker" aria-labelledby="ticker-title">
+  <h2 class="visually-hidden" id="ticker-title">Latest emissions</h2>
+  <ol id="ticker" class="glass"></ol>
+  <div class="timeline glass" id="timeline" hidden></div>
+</div>
+
+<aside class="panel glass" id="panel" aria-labelledby="panel-title" hidden>
+  <div class="panel-head">
+    <div class="row">
+      <span class="chip" id="panel-kind"></span>
+      <span class="badge" id="panel-state" hidden></span>
+      <button type="button" class="close" id="panel-close" aria-label="Close details">Close</button>
+    </div>
+    <h2 id="panel-title" tabindex="-1"></h2>
+    <div class="key" id="panel-key"></div>
+    <p class="meta" id="panel-meta"></p>
+    <div class="actions" id="panel-actions"></div>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</aside>
+
+<div class="tip glass" id="tip" hidden></div>
+
+<p class="visually-hidden" id="announce-label">Store updates</p>
+<div class="visually-hidden" id="announce" aria-live="polite" aria-labelledby="announce-label"></div>
+
+<script src="/timeline.js"></script>
+<script>
+"use strict";
+
+/* =====================================================================
+   Data vocabulary (shared meaning with index.html)
+   ===================================================================== */
+
+// Set from /api/config (<vertex>.viewer.json, validated by serve.py); see README.md.
+let TONE = {};              // value -> tone (critical, high, medium, low, ok)
+let KIND_ORDER = [];        // legend order and layout sectors; unlisted kinds follow, sorted
+let KIND_COLORS = {};       // kind -> colour slot 1-10, or a tone name
+let COLOR_BY = {};          // kind -> field whose value's tone colours each entity (e.g. finding -> severity)
+let HIDDEN_BY_DEFAULT = new Set();
+let HEADLINE = ["title", "summary", "display_name", "description", "message"];
+let LABELS = {};            // kind -> { fields, key: full|last|after@, suffix }
+let NODE_SIZE = {};         // kind -> { base, field, add: { value: extra radius } }
+const SLOTS = 10;
+
+function applyConfig(c) {
+  TONE = c.tones ?? {};
+  KIND_ORDER = c.kindOrder ?? [];
+  KIND_COLORS = c.kindColors ?? {};
+  COLOR_BY = c.colorBy ?? {};
+  HIDDEN_BY_DEFAULT = new Set(c.hidden ?? []);
+  if (c.headline) HEADLINE = c.headline;
+  LABELS = c.labels ?? {};
+  NODE_SIZE = c.nodeSize ?? {};
+  Timeline.setTouches(c.touches ?? {});
+}
+
+/* =====================================================================
+   Small helpers
+   ===================================================================== */
+
+/* replaceChildren with h()'s child rule: null and false are skipped, not rendered as text. */
+function fill(parent, ...children) {
+  parent.replaceChildren(...children.flat().filter((c) => c != null && c !== false));
+  return parent;
+}
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "style") el.style.cssText = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const dtf = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+function relative(ts) {
+  const diff = ts - Date.now() / 1000, abs = Math.abs(diff);
+  if (abs < 45) return "just now";
+  for (const [unit, size, limit] of [["minute", 60, 3600], ["hour", 3600, 86400], ["day", 86400, 86400 * 30], ["month", 86400 * 30, 86400 * 365]])
+    if (abs < limit) return rtf.format(Math.round(diff / size), unit);
+  return rtf.format(Math.round(diff / (86400 * 365)), "year");
+}
+function timeEl(ts) {
+  return h("time", { datetime: new Date(ts * 1000).toISOString(), title: dtf.format(new Date(ts * 1000)), "data-ts": ts }, relative(ts));
+}
+const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const refToAddress = (ref) => ref.replace(":", "/");     // edge "kind:key" -> row "kind/key"
+function headline(p) { for (const f of HEADLINE) if (p?.[f]) return String(p[f]); return ""; }
+function fmt(v) { return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v); }
+
+/* =====================================================================
+   Theme: colours live in CSS tokens; canvas reads them, and re-reads on scheme change
+   ===================================================================== */
+
+let T = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const names = ["ground", "ink", "ink-2", "ink-3", "edge", "contour", "accent", "focus",
+    "tone-critical", "tone-high", "tone-medium", "tone-low", "tone-ok",
+    ...Array.from({ length: SLOTS }, (_, i) => "k-" + (i + 1)), "k-other"];
+  T = Object.fromEntries(names.map((n) => [n, cs.getPropertyValue("--" + n).trim()]));
+  T.sans = cs.getPropertyValue("--sans").trim();
+  T.mono = cs.getPropertyValue("--mono").trim();
+}
+/* A kind's colour token. A config that assigns colours leaves the kinds it does not name grey
+   (k-other); with no assignments at all, each kind hashes to a stable slot so a store without
+   a config still reads in colour. */
+function kindColorVar(kind) {
+  const c = KIND_COLORS[kind];
+  if (typeof c === "number") return "k-" + c;
+  if (typeof c === "string") return "tone-" + c;
+  if (Object.keys(KIND_COLORS).length) return "k-other";
+  let hash = 0;
+  for (const ch of kind) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return "k-" + (hash % SLOTS + 1);
+}
+// An entity's colour token: the tone of its colorBy field if its kind has one, else its kind's.
+function colorOf(row) {
+  const field = COLOR_BY[row.kind];
+  return field ? "tone-" + (TONE[row.payload?.[field]] ?? "low") : kindColorVar(row.kind);
+}
+function colorFor(row) { return T[colorOf(row)]; }
+// Kinds in the config's order, then the rest alphabetically.
+function kindsInOrder(present) {
+  return [...KIND_ORDER.filter((k) => present.has(k)), ...[...present].filter((k) => !KIND_ORDER.includes(k)).sort()];
+}
+
+/* =====================================================================
+   Store state (folded by sl on the server) and the graph built from it
+   ===================================================================== */
+
+const state = { head: 0, schema: {}, rows: [], byAddr: new Map(), inbound: new Map() };
+const g = { nodes: [], links: [], byId: new Map(), adj: new Map(), parked: new Map() };   // parked: last position of nodes taken off the map
+const ui = {
+  hidden: new Set(), showInactive: false,   // filled from the config's `hidden` at boot
+  hover: null, hoverLink: null, selected: null, paused: false,
+  range: { active: false },            // the time-range summary (timeline.js); touched entities stay marked
+};
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const motionOn = () => !reducedMotion.matches && !ui.paused;
+
+async function loadState() {
+  const res = await fetch("/api/state");
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  state.head = body.head;
+  state.vertex = body.vertex || "loops";
+  const name = document.getElementById("store-name");
+  name.textContent = state.vertex[0].toUpperCase() + state.vertex.slice(1) + " graph";
+  name.title = `${state.vertex}.vertex`;
+  document.title = name.textContent;
+  state.schema = body.schema;
+  state.rows = body.rows;
+  state.byAddr = new Map(body.rows.map((r) => [r.address, r]));
+  state.inbound = new Map();
+  for (const r of body.rows) for (const e of r.edges ?? []) {
+    const t = refToAddress(e.address);
+    if (!state.inbound.has(t)) state.inbound.set(t, []);
+    state.inbound.get(t).push({ predicate: e.predicate, from: r });
+  }
+}
+
+function isActive(row) {
+  const lc = state.schema[row.kind]?.lifecycle;
+  return !lc || lc.active.includes(row.payload?.[lc.field]);
+}
+// While a range replays, an entity is on the map once its first emission has played (timeline.js).
+function isVisible(row) { return !ui.hidden.has(row.kind) && (ui.showInactive || isActive(row)) && tl.existsAt(row.address); }
+
+/* An entity's short name (config `labels`): the first non-empty of its fields, else its key
+   (whole, last path segment, or the part after "@"), plus " · <suffix field>". */
+function labelOf(row, max = 40) {
+  const p = row.payload ?? {}, spec = LABELS[row.kind] ?? {};
+  // A kind with no label spec reads display_name; one with a spec reads only the fields it names.
+  const named = (spec.fields ?? (LABELS[row.kind] ? [] : ["display_name"])).map((f) => p[f]).find((v) => v != null && v !== "");
+  const key = spec.key === "last" ? row.key.split("/").pop() : spec.key === "after@" ? (row.key.split("@")[1] ?? "") : row.key;
+  const text = named != null ? String(named) : key;
+  return clip(spec.suffix ? `${text} · ${p[spec.suffix] ?? "?"}` : text, max);
+}
+const label = (row) => labelOf(row);
+
+function radiusFor(n) {
+  const size = NODE_SIZE[n.row.kind] ?? {};
+  const extra = size.field ? (size.add?.[n.row.payload?.[size.field]] ?? 0) : 0;
+  return Math.min(17, (size.base ?? 4) + extra + Math.sqrt(n.deg) * 0.85);
+}
+
+/* Seed a kind into its own sector so the first layout already has structure. */
+function seed(n) {
+  const order = kindsInOrder(new Set(state.rows.map((r) => r.kind)));
+  const kinds = order.length || 1;
+  const i = Math.max(0, order.indexOf(n.row.kind));
+  const a = (i / kinds) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+  const r = 180 + Math.random() * 160;
+  n.x = Math.cos(a) * r; n.y = Math.sin(a) * r;
+}
+
+/* Rebuild nodes and links from state. Existing nodes keep their position and velocity
+   (keyed by address), so a live re-fold adds to the picture instead of reshuffling it.
+   A node taken off the map (legend, inactive filter, replay) comes back where it was. */
+function rebuild({ live = false } = {}) {
+  const old = g.byId;
+  const now = performance.now();
+  const nodes = [], byId = new Map();
+  for (const row of state.rows) {
+    if (!isVisible(row)) continue;
+    let n = old.get(row.address);
+    if (n) n.row = row;
+    else {
+      const at = g.parked.get(row.address);
+      n = { id: row.address, row, x: at?.x ?? NaN, y: at?.y ?? NaN, vx: 0, vy: 0, fx: null, fy: null, deg: 0, born: live ? now : 0, mob: 1 };
+      g.parked.delete(row.address);
+    }
+    nodes.push(n); byId.set(n.id, n);
+  }
+  const links = [], seen = new Map(), adj = new Map(nodes.map((n) => [n.id, new Set()]));
+  for (const n of nodes) {
+    for (const e of n.row.edges ?? []) {
+      const t = byId.get(refToAddress(e.address));
+      if (!t || t === n) continue;
+      const pair = n.id < t.id ? n.id + "\n" + t.id : t.id + "\n" + n.id;
+      const l = seen.get(pair);
+      if (l) { l.predicates.push(e.predicate); continue; }
+      const link = { source: n, target: t, predicates: [e.predicate] };
+      seen.set(pair, link); links.push(link);
+      adj.get(n.id).add(t.id); adj.get(t.id).add(n.id);
+    }
+  }
+  for (const n of nodes) { n.deg = adj.get(n.id).size; n.r = radiusFor(n); n.color = colorFor(n.row); n.label = label(n.row); }
+  for (const l of links) {
+    l.strength = 1 / Math.min(l.source.deg, l.target.deg);
+    l.bias = l.source.deg / (l.source.deg + l.target.deg);
+    l.dist = 26 + l.source.r + l.target.r;
+  }
+  // Place new nodes next to a neighbour that already has a position, else in their kind's sector.
+  for (const n of nodes) {
+    if (Number.isFinite(n.x)) continue;
+    const anchor = [...adj.get(n.id)].map((id) => byId.get(id)).find((m) => Number.isFinite(m.x));
+    if (anchor) { const a = Math.random() * Math.PI * 2; n.x = anchor.x + Math.cos(a) * 30; n.y = anchor.y + Math.sin(a) * 30; }
+    else seed(n);
+  }
+  const added = nodes.filter((n) => !old.has(n.id)).length;
+  for (const [id, n] of old) if (!byId.has(id)) g.parked.set(id, { x: n.x, y: n.y });
+  g.nodes = nodes; g.links = links; g.byId = byId; g.adj = adj;
+  if (ui.selected && !byId.has(ui.selected.id)) ui.selected = null;
+  if (ui.hover && !byId.has(ui.hover.id)) ui.hover = null;
+  if (ui.selected) ui.selected = byId.get(ui.selected.id);
+  return added;
+}
+
+/* =====================================================================
+   Force layout: a small d3-force-style simulation (links, many-body, gravity, collision).
+   O(n²) many-body is fine at a few hundred nodes and keeps this file dependency-free.
+   ===================================================================== */
+
+const sim = { alpha: 1, alphaMin: 0.002, alphaDecay: 1 - Math.pow(0.002, 1 / 300), alphaTarget: 0, velocityDecay: 0.42 };
+
+/* Layout settings: remembered per viewer in this browser only (a convenience, not shared state). */
+const SETTINGS_DEFAULT = { spacing: 1, linkLength: 1, gravity: 1, depth: 1, pinOnDrop: true };
+const settings = (() => {
+  try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem("graph-settings") || "{}") }; }
+  catch { return { ...SETTINGS_DEFAULT }; }
+})();
+function saveSettings() { try { localStorage.setItem("graph-settings", JSON.stringify(settings)); } catch { /* storage blocked: settings last for this page only */ } }
+
+function tick() {
+  const { nodes, links } = g;
+  const alpha = sim.alpha;
+  const len = settings.linkLength, charge = 34 * settings.spacing;
+  const reach = 520 * Math.sqrt(settings.spacing), maxD2 = reach * reach;
+  for (const l of links) {
+    const s = l.source, t = l.target;
+    let dx = t.x + t.vx - s.x - s.vx, dy = t.y + t.vy - s.y - s.vy;
+    const d = Math.hypot(dx, dy) || 1e-6;
+    const f = ((d - l.dist * len) / d) * alpha * l.strength;
+    dx *= f; dy *= f;
+    t.vx -= dx * l.bias; t.vy -= dy * l.bias;
+    s.vx += dx * (1 - l.bias); s.vy += dy * (1 - l.bias);
+  }
+  const N = nodes.length;
+  for (let i = 0; i < N; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < N; j++) {
+      const b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 > maxD2) continue;
+      if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = dx * dx + dy * dy + 1; }
+      // Many-body repulsion (charge grows a little with size, so hubs get room).
+      const w = (alpha * charge * (a.r + b.r)) / (6 * d2);
+      a.vx -= dx * w; a.vy -= dy * w; b.vx += dx * w; b.vy += dy * w;
+      // Collision: keep discs and their labels from overlapping.
+      const min = a.r + b.r + 4;
+      if (d2 < min * min) {
+        const d = Math.sqrt(d2), push = ((min - d) / d) * 0.35;
+        a.vx -= dx * push; a.vy -= dy * push; b.vx += dx * push; b.vy += dy * push;
+      }
+    }
+  }
+  for (const n of nodes) {
+    const pull = (n.deg ? 0.035 : 0.12) * settings.gravity * alpha;   // pull to the centre; orphans pulled harder
+    n.vx -= n.x * pull; n.vy -= n.y * pull;
+    if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = n.vy = 0; continue; }
+    n.vx *= 1 - sim.velocityDecay; n.vy *= 1 - sim.velocityDecay;
+    n.x += n.vx * n.mob; n.y += n.vy * n.mob;
+  }
+  sim.alpha += (sim.alphaTarget - sim.alpha) * sim.alphaDecay;
+}
+const simRunning = () => sim.alpha > sim.alphaMin || sim.alphaTarget > 0;
+function settle(maxTicks = 600) { for (let i = 0; i < maxTicks && sim.alpha > sim.alphaMin; i++) tick(); }
+function reheat(alpha) { sim.alpha = Math.max(sim.alpha, alpha); wake(); }
+/* A layout change the viewer asked for (settings, unpin): everything relaxes together. */
+function relaxAll(heat) {
+  for (const n of g.nodes) n.mob = 1;
+  if (motionOn()) reheat(heat); else { sim.alpha = Math.max(sim.alpha, heat); settle(); }
+  wake();
+}
+
+/* Rebuild after the visible set changes, in one of two modes:
+   - keepExisting (live arrivals, or opening a hidden entity from search/ticker/panel): nodes already
+     on screen hold still and only newcomers move, so the map you are following never reshuffles.
+   - otherwise (legend toggles): everything relaxes together.
+   With motion off or paused the layout runs to rest synchronously instead of animating. */
+function relayout({ keepExisting }) {
+  const before = new Set(g.byId.keys());
+  const added = rebuild({ live: true });
+  for (const n of g.nodes) n.mob = keepExisting && before.has(n.id) ? 0 : 1;
+  const heat = added ? 0.3 : keepExisting ? 0 : 0.12;
+  if (motionOn()) reheat(heat);
+  else { sim.alpha = Math.max(sim.alpha, heat); settle(); for (const n of g.nodes) n.mob = 1; }
+  refreshIsolation();
+  renderLegend(); renderStats(); wake();
+  return added;
+}
+
+/* =====================================================================
+   Camera
+   ===================================================================== */
+
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+const view = { x: 0, y: 0, k: 1 };
+let cam = null;               // camera animation {from, to, t0, dur}
+let W = 0, H = 0, dpr = 1;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.clientWidth; H = canvas.clientHeight;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  wake();
+}
+new ResizeObserver(resize).observe(canvas);
+
+const toWorld = (sx, sy) => [(sx - view.x) / view.k, (sy - view.y) / view.k];
+function zoomAt(sx, sy, factor) {
+  const k = Math.min(6, Math.max(0.12, view.k * factor));
+  const [wx, wy] = toWorld(sx, sy);
+  view.k = k; view.x = sx - wx * k; view.y = sy - wy * k;
+  cam = null; wake();
+}
+function panelInset() { return !document.getElementById("panel").hidden && W >= 760 ? 392 : 0; }
+function moveCamera(to) {
+  if (!motionOn()) { Object.assign(view, to); cam = null; wake(); return; }
+  cam = { from: { ...view }, to, t0: performance.now(), dur: 650 }; wake();
+}
+/* Fit the whole graph, or the isolated neighbourhood (with room for its radial labels). */
+function fit(animate = true) {
+  const pts = iso.root
+    ? [...iso.layout.entries()].map(([id, p]) => ({ x: p.x, y: p.y, r: g.byId.get(id)?.r ?? 4 }))
+    : g.nodes.map((n) => ({ x: n.x, y: n.y, r: n.r }));
+  if (!pts.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p.x - p.r); y0 = Math.min(y0, p.y - p.r); x1 = Math.max(x1, p.x + p.r); y1 = Math.max(y1, p.y + p.r); }
+  const wide = W >= 760, pad = iso.root ? (wide ? 140 : 50) : 0;
+  const left = (wide ? 250 : 12) + pad, right = (wide ? 12 + panelInset() : 12) + pad;
+  // Isolated: clear the trail bar above and the ticker below, since radial labels reach both.
+  const hh = Chrome.headerHeight();
+  const top = iso.root ? hh + 100 + pad * 0.4 : hh + 20, bottom = iso.root ? (wide ? 200 : 60) + pad * 0.4 : (wide ? 120 : 60);
+  const aw = Math.max(100, W - left - right), ah = Math.max(100, H - top - bottom);
+  const k = Math.min(iso.root ? 2.4 : 2, Math.max(0.12, Math.min(aw / Math.max(1, x1 - x0), ah / Math.max(1, y1 - y0))));
+  const to = { k, x: left + aw / 2 - ((x0 + x1) / 2) * k, y: top + ah / 2 - ((y0 + y1) / 2) * k };
+  animate ? moveCamera(to) : Object.assign(view, to);
+}
+function centerOn(n) {
+  const k = Math.max(view.k, 1.2);
+  const cx = (W - panelInset()) / 2, cy = H / 2;
+  moveCamera({ k, x: cx - (n.px ?? n.x) * k, y: cy - (n.py ?? n.y) * k });
+}
+const ease = (t) => 1 - Math.pow(1 - t, 3);
+
+/* =====================================================================
+   Isolate: double-click a node to pull it and its neighbours out into a radial view.
+   The focus sits at the centre; neighbours sit on a ring, grouped into sectors by how
+   they relate to it (outgoing predicate, or "← predicate" for references into it).
+   Clicking an edge or a neighbour jumps the focus there; Back and Esc walk the trail.
+   ===================================================================== */
+
+const iso = { root: null, layout: new Map(), groups: [], R: 0, R2: 0, cx: 0, cy: 0, trail: [], from: null, t0: 0 };
+const ISO_MS = 750;
+
+function relationTo(root, m) {
+  for (const e of root.row.edges ?? []) if (refToAddress(e.address) === m.id) return e.predicate;
+  for (const e of m.row.edges ?? []) if (refToAddress(e.address) === root.id) return "← " + e.predicate;
+  return "linked";
+}
+function computeIsolation(root) {
+  const layout = new Map(), groups = [];
+  const cx = root.x, cy = root.y;
+  layout.set(root.id, { x: cx, y: cy, a: 0, ring: 0 });
+  const ring1 = [...(g.adj.get(root.id) ?? [])].map((id) => g.byId.get(id)).filter(Boolean);
+  const byRel = new Map();
+  for (const m of ring1) { const k = relationTo(root, m); if (!byRel.has(k)) byRel.set(k, []); byRel.get(k).push(m); }
+  const rels = [...byRel.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  for (const [, list] of rels) list.sort((a, b) => a.row.kind.localeCompare(b.row.kind) || a.label.localeCompare(b.label));
+  const GAP = rels.length > 1 ? 1.2 : 0;
+  const slots = Math.max(1, ring1.length + GAP * rels.length);
+  const R = Math.max(150, (slots * 20) / (2 * Math.PI));
+  const step = (2 * Math.PI) / slots;
+  let a = -Math.PI / 2 + (GAP * step) / 2;
+  for (const [rel, list] of rels) {
+    const a0 = a;
+    for (const m of list) { layout.set(m.id, { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R, a, ring: 1 }); a += step; }
+    groups.push({ rel, n: list.length, a0: a0 - step * 0.35, a1: a - step * 0.65 });
+    a += GAP * step;
+  }
+  let R2 = 0;
+  if (settings.depth >= 2) {
+    const outer = [], seen = new Set();
+    for (const m of ring1) for (const id of g.adj.get(m.id) ?? []) {
+      if (layout.has(id) || seen.has(id)) continue;
+      seen.add(id); outer.push({ n: g.byId.get(id), a: layout.get(m.id).a });
+    }
+    if (outer.length) {
+      outer.sort((p, q) => p.a - q.a);
+      R2 = Math.max(R + 150, (outer.length * 14) / (2 * Math.PI));
+      // Keep each second-hop node near its parent's angle, nudged apart just enough not to overlap.
+      const minStep = 14 / R2;
+      let prev = -Infinity;
+      for (const o of outer) { o.t = Math.max(o.a, prev + minStep); prev = o.t; }
+      const drift = outer.reduce((s, o) => s + o.t - o.a, 0) / outer.length;
+      for (const o of outer) { const t = o.t - drift; layout.set(o.n.id, { x: cx + Math.cos(t) * R2, y: cy + Math.sin(t) * R2, a: t, ring: 2 }); }
+    }
+  }
+  return { layout, groups, R, R2, cx, cy };
+}
+function snapshotFrom() {
+  iso.from = new Map(g.nodes.map((n) => [n.id, [n.px ?? n.x, n.py ?? n.y, n.vis ?? 1]]));
+  iso.t0 = performance.now();
+}
+function applyIsolation(root) {
+  Object.assign(iso, computeIsolation(root), { root });
+}
+function isolate(n, { push = true } = {}) {
+  if (!n) return;
+  snapshotFrom();
+  applyIsolation(n);
+  if (push && iso.trail.at(-1) !== n.id) iso.trail.push(n.id);
+  ui.hover = null; ui.hoverLink = null; tip.hidden = true;
+  ui.selected = n;
+  renderPanel(n);
+  history.replaceState(null, "", "#" + n.row.kind + "/" + encodeURIComponent(n.row.key));
+  renderCrumbs();
+  fit(true);
+  announce(`Isolated ${label(n.row)} with ${iso.layout.size - 1} connected entities`);
+  wake();
+}
+function exitIsolation() {
+  if (!iso.root) return;
+  snapshotFrom();
+  iso.root = null; iso.layout = new Map(); iso.groups = []; iso.trail = [];
+  renderCrumbs();
+  fit(true);
+  if (ui.selected) document.getElementById("panel-actions")?.replaceChildren(...panelActions(ui.selected));
+  announce("Showing the whole graph");
+  wake();
+}
+function isoBack() {
+  if (iso.trail.length <= 1) { exitIsolation(); return; }
+  iso.trail.pop();
+  isolate(g.byId.get(iso.trail.at(-1)), { push: false });
+}
+/* After a re-fold or kind toggle: keep the isolated view, now with any new neighbours. */
+function refreshIsolation() {
+  if (!iso.root) return;
+  const root = g.byId.get(iso.root.id);
+  if (!root) { exitIsolation(); return; }
+  iso.trail = iso.trail.filter((id) => g.byId.has(id));
+  snapshotFrom();
+  applyIsolation(root);
+  renderCrumbs();
+}
+
+/* Drawn position = layout target, eased from wherever the node was when the view changed. */
+function targetOf(n) {
+  if (!iso.root) return [n.x, n.y, 1];
+  const p = iso.layout.get(n.id);
+  return p ? [p.x, p.y, 1] : [n.x, n.y, 0];
+}
+function updateDrawn(now) {
+  const t = iso.from && motionOn() ? Math.min(1, (now - iso.t0) / ISO_MS) : 1;
+  const e = ease(t);
+  for (const n of g.nodes) {
+    const [tx, ty, tv] = targetOf(n);
+    const f = iso.from?.get(n.id);
+    if (f && t < 1) { n.px = f[0] + (tx - f[0]) * e; n.py = f[1] + (ty - f[1]) * e; n.vis = f[2] + (tv - f[2]) * e; }
+    else { n.px = tx; n.py = ty; n.vis = tv; }
+  }
+  if (t >= 1) iso.from = null;
+  return t < 1;
+}
+
+const crumbs = document.getElementById("crumbs");
+function renderCrumbs() {
+  crumbs.hidden = !iso.root;
+  if (!iso.root) { crumbs.replaceChildren(); return; }
+  const trail = iso.trail.slice(-4);
+  crumbs.replaceChildren(
+    h("button", { type: "button", onclick: isoBack, title: "Back (Esc)" }, "← Back"),
+    h("button", { type: "button", onclick: exitIsolation }, "Whole graph"),
+    h("ol", {}, ...(iso.trail.length > 4 ? [h("li", { class: "more" }, "…")] : []),
+      ...trail.map((id, i) => {
+        const n = g.byId.get(id);
+        const last = i === trail.length - 1;
+        return h("li", {}, last
+          ? h("span", { "aria-current": "location" }, n ? n.label : id)
+          : h("button", { type: "button", onclick: () => { iso.trail = iso.trail.slice(0, iso.trail.lastIndexOf(id) + 1); isolate(n, { push: false }); } }, n ? n.label : id));
+      })),
+    h("span", { class: "count" }, `${iso.layout.size - 1} linked${settings.depth > 1 ? " · 2 hops" : ""}`),
+  );
+}
+
+/* =====================================================================
+   Live effects. Starts are rate-limited to three per second whatever the motion
+   setting, so a burst of emissions never reads as flashing.
+   ===================================================================== */
+
+const fx = { queue: [], ripples: [], sparks: [], lastStart: -1e9 };
+const LIT_MS = 6000, WARM_MS = 120_000, RIPPLE_MS = 900, SPARK_MS = 900;
+
+function celebrate(id) { if (!fx.queue.includes(id)) fx.queue.push(id); wake(); }
+function startEffects(now) {
+  while (fx.queue.length && now - fx.lastStart >= 340) {
+    const n = g.byId.get(fx.queue.shift());
+    if (!n) continue;
+    fx.lastStart = now;
+    n.lit = now; n.warm = now;
+    if (!motionOn() || document.hidden) continue;    // static, opacity-only marker instead
+    fx.ripples.push({ n, t0: now });
+    let i = 0;
+    for (const l of g.links) {
+      if (i >= 8) break;
+      if (l.source === n || l.target === n) fx.sparks.push({ l, from: n, t0: now + i++ * 70 });
+    }
+  }
+}
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+
+let raf = 0;
+function wake() { if (!raf) raf = requestAnimationFrame(frame); }
+
+function frame(now) {
+  raf = 0;
+  let busy = false;
+  if (simRunning() && !ui.paused) {
+    tick(); busy = true;
+    if (!simRunning()) for (const n of g.nodes) n.mob = 1;
+  }
+  if (cam) {
+    const t = Math.min(1, (now - cam.t0) / cam.dur), e = ease(t);
+    for (const k of ["x", "y", "k"]) view[k] = cam.from[k] + (cam.to[k] - cam.from[k]) * e;
+    if (t >= 1) cam = null; else busy = true;
+  }
+  if (updateDrawn(now)) busy = true;
+  startEffects(now);
+  fx.ripples = fx.ripples.filter((r) => now - r.t0 < RIPPLE_MS);
+  fx.sparks = fx.sparks.filter((s) => now - s.t0 < SPARK_MS);
+  if (fx.queue.length || fx.ripples.length || fx.sparks.length) busy = true;
+  if (g.nodes.some((n) => (n.lit && now - n.lit < LIT_MS) || (n.born && now - n.born < 700))) busy = true;
+  draw(now);
+  if (busy) wake();
+}
+
+function focusSet() {
+  const n = ui.hover ?? (iso.root ? null : ui.selected);
+  if (ui.hoverLink) return new Set([ui.hoverLink.source.id, ui.hoverLink.target.id]);
+  if (!n) return null;
+  return new Set([n.id, ...(g.adj.get(n.id) ?? [])]);
+}
+
+function curve(l) {
+  const s = l.source, t = l.target;
+  const mx = (s.px + t.px) / 2, my = (s.py + t.py) / 2;
+  const dx = t.px - s.px, dy = t.py - s.py;
+  // Isolated: spokes from the focus are straight; chords between neighbours bow outward.
+  const bend = !iso.root ? 0.12 : (s === iso.root || t === iso.root) ? 0 : 0.22;
+  return { sx: s.px, sy: s.py, cx: mx - dy * bend, cy: my + dx * bend, tx: t.px, ty: t.py };
+}
+function bez(c, t) {
+  const u = 1 - t;
+  return [u * u * c.sx + 2 * u * t * c.cx + t * t * c.tx, u * u * c.sy + 2 * u * t * c.cy + t * t * c.ty];
+}
+
+function draw(now) {
+  const k = view.k;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = T.ground; ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.x, dpr * view.y);
+
+  // Faint dashed contours: around the origin, or the isolated focus's rings.
+  ctx.strokeStyle = T.contour; ctx.lineWidth = 1 / k; ctx.setLineDash([2 / k, 6 / k]);
+  const rings = iso.root ? [iso.R, iso.R2].filter(Boolean) : [160, 320, 480, 640];
+  const ox = iso.root ? iso.cx : 0, oy = iso.root ? iso.cy : 0;
+  for (const r of rings) { ctx.beginPath(); ctx.arc(ox, oy, r, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.setLineDash([]);
+
+  // Isolated: sector arcs that group neighbours by relationship.
+  if (iso.root && !iso.from) {
+    ctx.strokeStyle = T["ink-3"]; ctx.lineWidth = 1.2 / k; ctx.globalAlpha = 0.7;
+    const ra = iso.R - 26;
+    for (const gr of iso.groups) {
+      ctx.beginPath(); ctx.arc(iso.cx, iso.cy, ra, gr.a0, Math.max(gr.a1, gr.a0 + 0.01)); ctx.stroke();
+      for (const a of [gr.a0, Math.max(gr.a1, gr.a0 + 0.01)]) {
+        ctx.beginPath();
+        ctx.moveTo(iso.cx + Math.cos(a) * (ra - 4), iso.cy + Math.sin(a) * (ra - 4));
+        ctx.lineTo(iso.cx + Math.cos(a) * (ra + 4), iso.cy + Math.sin(a) * (ra + 4));
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const focus = focusSet();
+  const focusId = ui.hoverLink ? null : (ui.hover ?? (iso.root ? null : ui.selected))?.id;
+  const touchesFocus = (l) => ui.hoverLink ? l === ui.hoverLink : (l.source.id === focusId || l.target.id === focusId);
+
+  // Edges: one quiet pass, then the focused neighbourhood on top.
+  ctx.lineWidth = 1 / k;
+  ctx.strokeStyle = T.edge;
+  const base = iso.root ? 0.32 : focus ? 0.05 : ui.range.active ? 0.08 : 0.16;
+  ctx.beginPath();
+  for (const l of g.links) {
+    const v = Math.min(l.source.vis, l.target.vis);
+    if (v < 0.02 || (focus && touchesFocus(l))) continue;
+    if (v < 0.98) continue;                                        // fading edges drawn below
+    const c = curve(l); ctx.moveTo(c.sx, c.sy); ctx.quadraticCurveTo(c.cx, c.cy, c.tx, c.ty);
+  }
+  ctx.globalAlpha = base; ctx.stroke();
+  for (const l of g.links) {                                       // edges mid-transition fade with their nodes
+    const v = Math.min(l.source.vis, l.target.vis);
+    if (v < 0.02 || v >= 0.98 || (focus && touchesFocus(l))) continue;
+    const c = curve(l);
+    ctx.globalAlpha = base * v; ctx.beginPath(); ctx.moveTo(c.sx, c.sy); ctx.quadraticCurveTo(c.cx, c.cy, c.tx, c.ty); ctx.stroke();
+  }
+  if (focus) {
+    ctx.globalAlpha = 0.9; ctx.lineWidth = (ui.hoverLink ? 2.4 : 1.4) / k; ctx.strokeStyle = T.accent;
+    ctx.beginPath();
+    for (const l of g.links) {
+      if (!touchesFocus(l) || Math.min(l.source.vis, l.target.vis) < 0.5) continue;
+      const c = curve(l); ctx.moveTo(c.sx, c.sy); ctx.quadraticCurveTo(c.cx, c.cy, c.tx, c.ty);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Sparks travelling out along the emitted entity's edges, with a short tail.
+  for (const s of fx.sparks) {
+    const t = (now - s.t0) / SPARK_MS;
+    if (t < 0 || Math.min(s.l.source.vis, s.l.target.vis) < 0.5) continue;
+    const c = curve(s.l), forward = s.l.source === s.from;
+    for (let j = 0; j < 4; j++) {
+      const tt = Math.max(0, ease(t) - j * 0.05);
+      const [x, y] = bez(c, forward ? tt : 1 - tt);
+      ctx.globalAlpha = (1 - t) * (1 - j * 0.24);
+      ctx.fillStyle = s.from.color;
+      ctx.beginPath(); ctx.arc(x, y, (2.6 - j * 0.5) / Math.sqrt(k), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Halos for entities that just changed.
+  for (const n of g.nodes) {
+    if (!n.lit || n.vis < 0.5) continue;
+    const age = (now - n.lit) / LIT_MS;
+    if (age >= 1) continue;
+    const R = n.r * 3.4;
+    const grad = ctx.createRadialGradient(n.px, n.py, n.r * 0.6, n.px, n.py, R);
+    grad.addColorStop(0, n.color); grad.addColorStop(1, "transparent");
+    ctx.globalAlpha = 0.45 * (1 - age);
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(n.px, n.py, R, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Nodes.
+  for (const n of g.nodes) {
+    if (n.vis < 0.02) continue;
+    const touched = ui.range.active && ui.range.touched.has(n.id);
+    let a = (focus && !focus.has(n.id) ? 0.14 : ui.range.active && !touched ? 0.22 : 1) * n.vis;
+    if (n.born && motionOn()) a *= Math.min(1, (now - n.born) / 700);
+    const r = n === iso.root ? n.r * 1.6 + 2 : n.r;
+    ctx.globalAlpha = a;
+    ctx.beginPath(); ctx.arc(n.px, n.py, r, 0, Math.PI * 2);
+    if (!isActive(n.row)) {
+      ctx.lineWidth = 1.4 / k; ctx.strokeStyle = n.color; ctx.globalAlpha = a * 0.6; ctx.stroke();
+    } else {
+      ctx.fillStyle = n.color; ctx.fill();
+      ctx.lineWidth = 1.2 / k; ctx.strokeStyle = T.ground; ctx.stroke();
+    }
+    if (n.pinned && !iso.root) {                                   // pinned: a small dashed collar
+      ctx.globalAlpha = a * 0.9; ctx.setLineDash([2 / k, 2 / k]); ctx.lineWidth = 1 / k; ctx.strokeStyle = T.ink;
+      ctx.beginPath(); ctx.arc(n.px, n.py, r + 2.5 / k + 1, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (touched) {                                                 // changed in the time range: a steady ring
+      ctx.globalAlpha = n.vis; ctx.lineWidth = (ui.range.touched.get(n.id).isNew ? 2.2 : 1.4) / k; ctx.strokeStyle = T.accent;
+      ctx.beginPath(); ctx.arc(n.px, n.py, r + 3.5 / k + 1, 0, Math.PI * 2); ctx.stroke();
+    } else if (n.warm && now - n.warm < WARM_MS) {                 // recently changed: a fading ring
+      ctx.globalAlpha = a * 0.8 * (1 - (now - n.warm) / WARM_MS);
+      ctx.lineWidth = 1.5 / k; ctx.strokeStyle = T.accent;
+      ctx.beginPath(); ctx.arc(n.px, n.py, r + 3.5 / k + 1, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  if (ui.selected && ui.selected.vis > 0.5) {
+    const n = ui.selected, r = n === iso.root ? n.r * 1.6 + 2 : n.r;
+    ctx.lineWidth = 2 / k; ctx.strokeStyle = T.focus;
+    ctx.beginPath(); ctx.arc(n.px, n.py, r + 5 / k + 1, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // Ripples (motion only).
+  for (const r of fx.ripples) {
+    if (r.n.vis < 0.5) continue;
+    const t = (now - r.t0) / RIPPLE_MS;
+    ctx.globalAlpha = 0.7 * (1 - t);
+    ctx.lineWidth = 1.5 / k; ctx.strokeStyle = r.n.color;
+    ctx.beginPath(); ctx.arc(r.n.px, r.n.py, r.n.r + (26 * ease(t)) / k, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  if (iso.root && !iso.from) drawIsoLabels(now, focus); else drawLabels(now, focus);
+}
+
+/* Labels in screen space (crisp at any zoom), placed greedily by priority so they never overlap. */
+function textHalo(text, x, y, color, alpha = 1) {
+  ctx.lineJoin = "round"; ctx.lineWidth = 3.5; ctx.strokeStyle = T.ground;
+  ctx.strokeText(text, x, y);
+  ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillText(text, x, y); ctx.globalAlpha = 1;
+}
+function drawLabels(now, focus) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = `11px ${T.sans}`;
+  ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  const cands = [];
+  for (const n of g.nodes) {
+    if (n.vis < 0.5) continue;
+    const sx = n.px * view.k + view.x, sy = n.py * view.k + view.y;
+    if (sx < -100 || sx > W + 100 || sy < -20 || sy > H + 20) continue;
+    let p = 0;
+    if (n === ui.selected) p = 5;
+    else if (n === ui.hover) p = 4;
+    else if (focus?.has(n.id)) p = 3;
+    else if ((n.warm && now - n.warm < WARM_MS) || (ui.range.active && ui.range.touched.has(n.id))) p = 2;
+    else if (!focus && (n.r * view.k >= 7 || n.deg >= 7)) p = 1;
+    if (p) cands.push({ n, sx, sy, p });
+  }
+  cands.sort((a, b) => b.p - a.p || b.n.r - a.n.r);
+  const placed = [];
+  let shown = 0;
+  for (const c of cands) {
+    if (shown > 140) break;
+    const text = c.n.label;
+    const w = ctx.measureText(text).width;
+    const x = c.sx + c.n.r * view.k + 5, y = c.sy;
+    const box = [x - 2, y - 8, x + w + 2, y + 8];
+    if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+    placed.push(box); shown++;
+    textHalo(text, x, y, c.p >= 2 ? T.ink : T["ink-2"], c.p >= 2 ? 1 : 0.85);
+  }
+}
+/* Isolated view: labels radiate outward from the focus, flipped on the left so they stay upright. */
+function drawIsoLabels(now, focus) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.textBaseline = "middle";
+  const k = view.k;
+  const toS = (x, y) => [x * k + view.x, y * k + view.y];
+  // Sector captions just inside the ring.
+  ctx.font = `10.5px ${T.mono || "monospace"}`; ctx.textAlign = "center";
+  const placed = [];
+  for (const gr of iso.groups) {
+    const mid = (gr.a0 + gr.a1) / 2, rr = iso.R - 44 - Math.min(40, 12 + gr.rel.length * 1.5);
+    const [x, y] = toS(iso.cx + Math.cos(mid) * rr, iso.cy + Math.sin(mid) * rr);
+    const text = `${gr.rel} · ${gr.n}`, w = ctx.measureText(text).width;
+    const box = [x - w / 2 - 2, y - 7, x + w / 2 + 2, y + 7];
+    if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+    placed.push(box);
+    textHalo(text, x, y, T["ink-2"]);
+  }
+  // Neighbour labels.
+  ctx.font = `11px ${T.sans}`;
+  for (const [id, p] of iso.layout) {
+    if (p.ring === 0) continue;
+    const n = g.byId.get(id);
+    if (!n) continue;
+    const highlighted = n === ui.hover || focus?.has(n.id) || n === ui.selected;
+    if (p.ring === 2 && 14 * k < 11 && !highlighted) continue;     // outer ring too dense at this zoom
+    const [x, y] = toS(n.px, n.py);
+    const flip = Math.cos(p.a) < 0;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(flip ? p.a + Math.PI : p.a);
+    ctx.textAlign = flip ? "right" : "left";
+    const off = (n.r * k + 6) * (flip ? -1 : 1);
+    const dim = focus && !focus.has(n.id);
+    textHalo(clip(n.label, 34), off, 0, highlighted ? T.ink : T["ink-2"], dim ? 0.3 : 1);
+    ctx.restore();
+  }
+  // The focus itself: larger, under its node.
+  const r = iso.root;
+  const [x, y] = toS(r.px, r.py);
+  ctx.textAlign = "center"; ctx.font = `600 13px ${T.sans}`;
+  textHalo(labelOf(r.row, 48), x, y + (r.r * 1.6 + 2) * k + 16, T.ink);
+  ctx.font = `10.5px ${T.mono || "monospace"}`;
+  textHalo(r.row.kind, x, y + (r.r * 1.6 + 2) * k + 32, T["ink-3"]);
+}
+
+/* =====================================================================
+   Pointer: pan, pinch-zoom, node drag, hover, click, double-click, edge jumps
+   ===================================================================== */
+
+const tip = document.getElementById("tip");
+const pointers = new Map();
+let drag = null, pinch = null;
+
+function hit(sx, sy) {
+  const [wx, wy] = toWorld(sx, sy);
+  let best = null, bestD = Infinity;
+  for (const n of g.nodes) {
+    if (n.vis < 0.5) continue;
+    const r = n === iso.root ? n.r * 1.6 + 2 : n.r;
+    const d = Math.hypot(n.px - wx, n.py - wy);
+    if (d < r + 6 / view.k && d < bestD) { best = n; bestD = d; }
+  }
+  return best;
+}
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+function hitLink(sx, sy) {
+  const [wx, wy] = toWorld(sx, sy), tol = 5 / view.k;
+  let best = null, bestD = tol;
+  for (const l of g.links) {
+    if (Math.min(l.source.vis, l.target.vis) < 0.5) continue;
+    const c = curve(l);
+    if (wx < Math.min(c.sx, c.tx, c.cx) - tol || wx > Math.max(c.sx, c.tx, c.cx) + tol ||
+        wy < Math.min(c.sy, c.ty, c.cy) - tol || wy > Math.max(c.sy, c.ty, c.cy) + tol) continue;
+    let ax = c.sx, ay = c.sy;
+    for (let i = 1; i <= 12; i++) {
+      const [bx, by] = bez(c, i / 12);
+      const d = segDist(wx, wy, ax, ay, bx, by);
+      if (d < bestD) { bestD = d; best = l; }
+      ax = bx; ay = by;
+    }
+  }
+  return best;
+}
+/* Which end of an edge a click jumps to: away from the focus (or the selected node), else the far end. */
+function jumpTarget(l, sx, sy) {
+  const anchor = iso.root ?? ui.selected;
+  if (anchor === l.source) return l.target;
+  if (anchor === l.target) return l.source;
+  if (iso.root) {
+    const rs = iso.layout.get(l.source.id)?.ring ?? 0, rt = iso.layout.get(l.target.id)?.ring ?? 0;
+    if (rs !== rt) return rs > rt ? l.source : l.target;
+  }
+  const [wx, wy] = toWorld(sx, sy);
+  return Math.hypot(l.source.px - wx, l.source.py - wy) > Math.hypot(l.target.px - wx, l.target.py - wy) ? l.source : l.target;
+}
+function placeTip(cx, cy) {
+  tip.hidden = false;
+  const r = tip.getBoundingClientRect();
+  const x = Math.min(cx + 14, window.innerWidth - r.width - 8), y = Math.min(cy + 14, window.innerHeight - r.height - 8);
+  tip.style.translate = `${x}px ${y}px`;
+}
+function showTip(n, cx, cy) {
+  if (!n) { tip.hidden = true; return; }
+  fill(tip,
+    h("div", { class: "k" }, `${n.row.kind} · ${n.deg} link${n.deg === 1 ? "" : "s"}${n.pinned ? " · pinned" : ""}${rangeNote(n)}`),
+    h("div", { class: "t" }, n.label),
+    headline(n.row.payload) && headline(n.row.payload) !== n.label ? h("div", { class: "s" }, headline(n.row.payload)) : null,
+    h("div", { class: "k" }, iso.root ? (n === iso.root ? "Focus · Esc to go back" : "Click to jump here") : "Double-click to isolate"),
+  );
+  placeTip(cx, cy);
+}
+function showLinkTip(l, target, cx, cy) {
+  const from = target === l.source ? l.target : l.source;
+  tip.replaceChildren(
+    h("div", { class: "k" }, l.predicates.join(", ")),
+    h("div", { class: "t" }, `${from.label} → ${target.label}`),
+    h("div", { class: "k" }, "Click to jump to " + target.row.kind),
+  );
+  placeTip(cx, cy);
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k };
+    if (drag?.node && !drag.node.pinned) { drag.node.fx = drag.node.fy = null; }
+    drag = null; return;
+  }
+  const n = hit(e.offsetX, e.offsetY);
+  drag = { node: n, sx: e.offsetX, sy: e.offsetY, vx: view.x, vy: view.y, moved: false };
+  cam = null;
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+  if (pinch && pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, (pinch.k * (d / pinch.d)) / view.k);
+    return;
+  }
+  if (drag) {
+    const dx = e.offsetX - drag.sx, dy = e.offsetY - drag.sy;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; tip.hidden = true; canvas.dataset.cursor = "grabbing"; }
+    if (!drag.moved) return;
+    const [wx, wy] = toWorld(e.offsetX, e.offsetY);
+    if (drag.node && iso.root) {                       // isolated: move the node within this view only
+      const p = iso.layout.get(drag.node.id);
+      if (p) { p.x = wx; p.y = wy; p.a = Math.atan2(wy - iso.cy, wx - iso.cx); }
+      wake();
+    } else if (drag.node) {                            // whole graph: pull it; neighbours follow on their links
+      drag.node.fx = wx; drag.node.fy = wy;
+      for (const n of g.nodes) n.mob = 1;
+      if (motionOn()) { sim.alphaTarget = 0.12; reheat(0.12); }
+      else { drag.node.x = wx; drag.node.y = wy; wake(); }
+    } else { view.x = drag.vx + dx; view.y = drag.vy + dy; wake(); }
+    return;
+  }
+  const n = hit(e.offsetX, e.offsetY);
+  const l = n ? null : hitLink(e.offsetX, e.offsetY);
+  canvas.dataset.cursor = n || l ? "pointer" : "";
+  if (n !== ui.hover || l !== ui.hoverLink) { ui.hover = n; ui.hoverLink = l; wake(); }
+  if (n) showTip(n, e.clientX, e.clientY);
+  else if (l) showLinkTip(l, jumpTarget(l, e.offsetX, e.offsetY), e.clientX, e.clientY);
+  else tip.hidden = true;
+});
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinch = null;
+  if (!drag) return;
+  if (drag.node && !iso.root) {
+    sim.alphaTarget = 0;
+    if (drag.moved && settings.pinOnDrop) { drag.node.pinned = true; renderPinCount(); }
+    else if (!drag.node.pinned) { drag.node.fx = drag.node.fy = null; }
+  }
+  if (!drag.moved && e.type === "pointerup") clickAt(drag.node, e.offsetX, e.offsetY);
+  drag = null; canvas.dataset.cursor = "";
+}
+/* A panel that a canvas click just opened can land over the node; for a moment it lets clicks
+   through, so the second click of a double-click still reaches the canvas. */
+function letClicksThrough() {
+  panel.classList.add("arriving");
+  setTimeout(() => panel.classList.remove("arriving"), 400);
+}
+function clickAt(n, sx, sy) {
+  if (n) {
+    if (panel.hidden) letClicksThrough();
+    if (iso.root && n !== iso.root) isolate(n);          // isolated: a neighbour click moves the focus there
+    else select(n, { center: false });
+    return;
+  }
+  const l = hitLink(sx, sy);
+  if (l) {
+    const t = jumpTarget(l, sx, sy);
+    if (iso.root) isolate(t); else select(t, { center: true });
+    return;
+  }
+  if (!iso.root) select(null);
+}
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
+canvas.addEventListener("pointerleave", () => { if (!drag) { ui.hover = null; ui.hoverLink = null; tip.hidden = true; wake(); } });
+canvas.addEventListener("dblclick", (e) => {
+  // The first click of this double-click may already have moved the focus; don't undo it.
+  if (performance.now() - iso.t0 < 600) return;
+  const n = hit(e.offsetX, e.offsetY);
+  if (n && n !== iso.root) isolate(n);
+  else if (!n && iso.root && !hitLink(e.offsetX, e.offsetY)) exitIsolation();   // double-click empty space: whole graph
+});
+// Scroll pans and pinch (ctrlKey on trackpads) or ⌘/Ctrl+scroll zooms, like design tools.
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const unit = e.deltaMode === 1 ? 16 : 1;
+  if (e.ctrlKey || e.metaKey) zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * unit * (e.ctrlKey ? 0.01 : 0.002)));
+  else { view.x -= e.deltaX * unit; view.y -= e.deltaY * unit; cam = null; wake(); }
+}, { passive: false });
+// Keyboard on the focused canvas: arrows pan, Enter isolates the selected node.
+canvas.addEventListener("keydown", (e) => {
+  const step = e.shiftKey ? 240 : 80;
+  const moves = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+  if (moves[e.key]) { e.preventDefault(); view.x += moves[e.key][0]; view.y += moves[e.key][1]; cam = null; wake(); }
+  else if (e.key === "Enter" && ui.selected && ui.selected !== iso.root) { e.preventDefault(); isolate(ui.selected); }
+});
+
+/* =====================================================================
+   Selection + detail panel
+   ===================================================================== */
+
+const panel = document.getElementById("panel");
+
+function ensureVisible(row) {
+  let changed = false;
+  if (ui.hidden.has(row.kind)) { ui.hidden.delete(row.kind); changed = true; }
+  if (!isActive(row) && !ui.showInactive) { ui.showInactive = true; document.getElementById("inactive").checked = true; changed = true; }
+  if (changed) relayout({ keepExisting: true });
+}
+
+function select(n, { center = true, focusPanel = false } = {}) {
+  ui.selected = n ?? null;
+  if (!n) {
+    panel.hidden = true;
+    if (!iso.root) history.replaceState(null, "", location.pathname + location.search);
+    wake(); return;
+  }
+  renderPanel(n);
+  history.replaceState(null, "", "#" + n.row.kind + "/" + encodeURIComponent(n.row.key));
+  if (center) centerOn(n);
+  if (focusPanel) document.getElementById("panel-title").focus();
+  wake();
+}
+function selectAddress(addr, opts) {
+  const row = state.byAddr.get(addr);
+  if (!row) return;
+  ensureVisible(row);
+  const n = g.byId.get(addr);
+  if (!n) return;
+  if (iso.root) { if (n !== iso.root) isolate(n); if (opts?.focusPanel) document.getElementById("panel-title").focus(); }
+  else select(n, opts);
+}
+
+/* Panel buttons that do on the keyboard what double-click and Esc do with a pointer. */
+function panelActions(n) {
+  if (!n) return [];
+  if (iso.root === n) return [
+    h("button", { type: "button", onclick: isoBack }, iso.trail.length > 1 ? "← Back" : "Show whole graph"),
+    ...(iso.trail.length > 1 ? [h("button", { type: "button", onclick: exitIsolation }, "Show whole graph")] : []),
+  ];
+  return [h("button", { type: "button", onclick: () => isolate(n) }, "Isolate with its links")];
+}
+
+function refButton(addr) {
+  const row = state.byAddr.get(addr);
+  if (!row) return h("span", { class: "mono" }, addr);
+  return h("button", { type: "button", class: "ref", onclick: () => selectAddress(addr, { focusPanel: true }) }, label(row));
+}
+
+function renderPanel(n) {
+  const row = n.row, p = row.payload ?? {};
+  const colorVar = colorOf(row);
+  const chip = document.getElementById("panel-kind");
+  chip.style.setProperty("--c", `var(--${colorVar})`);
+  chip.textContent = row.kind;
+  const badge = document.getElementById("panel-state");
+  const lc = state.schema[row.kind]?.lifecycle;
+  badge.hidden = !lc;
+  if (lc) badge.textContent = `${p[lc.field] ?? "—"}${isActive(row) ? "" : " · inactive"}`;
+  document.getElementById("panel-title").textContent = labelOf(row, Infinity);   // the panel has room for the whole name
+  document.getElementById("panel-key").textContent = row.key;
+  document.getElementById("panel-actions").replaceChildren(...panelActions(n));
+  document.getElementById("panel-meta").replaceChildren(
+    "Updated ", timeEl(row.ts), ` by ${row.observer}`, row.n > 1 ? ` · ${row.n} emissions` : "", rangeNote(n),
+  );
+
+  // Fields: skip the key and the internal *_ref ids; references render as buttons.
+  const dl = h("dl", { class: "fields" });
+  for (const [f, v] of Object.entries(p)) {
+    if (f === "name" || f.endsWith("_ref") || v === "" || v == null) continue;
+    const s = fmt(v);
+    const refs = s.split(",").map((x) => x.trim());
+    const isRefs = refs.every((x) => /^[a-z][a-z-]*:/.test(x) && state.byAddr.has(refToAddress(x)));
+    dl.append(h("dt", {}, f.replaceAll("_", " ")),
+      isRefs ? h("dd", {}, refs.flatMap((x, i) => (i ? [", ", refButton(refToAddress(x))] : [refButton(refToAddress(x))])))
+             : h("dd", { class: s.length > 160 ? "long" : null, title: s.length > 160 ? s : null }, s));
+  }
+
+  // Connections, grouped by predicate, both directions.
+  const groups = new Map();
+  for (const e of row.edges ?? []) {
+    const k = e.predicate;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(refToAddress(e.address));
+  }
+  for (const { predicate, from } of state.inbound.get(row.address) ?? []) {
+    const k = "← " + predicate + " (" + from.kind + ")";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(from.address);
+  }
+  const links = h("ul", { class: "links" });
+  for (const [pred, addrs] of groups) {
+    links.append(h("li", { class: "pred" }, `${pred} · ${addrs.length}`));
+    for (const a of addrs.slice(0, 25)) {
+      const r = state.byAddr.get(a);
+      if (!r) continue;
+      const color = `var(--${colorOf(r)})`;
+      links.append(h("li", {}, h("button", { type: "button", onclick: () => selectAddress(a, { focusPanel: true }) },
+        h("span", { class: "swatch", style: `--c: ${color}` }), h("span", {}, label(r)))));
+    }
+    if (addrs.length > 25) links.append(h("li", { class: "pred" }, `and ${addrs.length - 25} more`));
+  }
+
+  document.getElementById("panel-body").replaceChildren(
+    h("h3", {}, "Fields"), dl,
+    ...(groups.size ? [h("h3", {}, "Connections"), links] : []),
+    h("a", { class: "open-tables", href: "/#" + row.kind + "/" + encodeURIComponent(row.key) }, "Open history in tables →"),
+  );
+  panel.hidden = false;
+}
+function closePanel() { select(null); search.focus(); }
+document.getElementById("panel-close").addEventListener("click", closePanel);
+
+/* =====================================================================
+   Legend, stats
+   ===================================================================== */
+
+function renderLegend() {
+  const counts = new Map();
+  for (const r of state.rows) if ((ui.showInactive || isActive(r)) && tl.existsAt(r.address)) counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1);
+  const kinds = kindsInOrder(new Set(counts.keys()));
+  document.getElementById("kinds").replaceChildren(...kinds.map((k) => h("li", {},
+    h("button", { type: "button", "aria-pressed": String(!ui.hidden.has(k)), onclick: () => toggleKind(k) },
+      h("span", { class: "swatch", style: `--c: var(--${kindColorVar(k)})` }), h("span", {}, k),
+      h("span", { class: "count" }, plusFor(k), counts.get(k))))));
+  renderRangeNote();
+  const present = state.rows.filter((r) => tl.existsAt(r.address));
+  const src = present.filter((r) => r.kind === "source").length;
+  const srcEdges = present.reduce((s, r) => s + (r.edges ?? []).filter((e) => e.address.startsWith("source:")).length, 0);
+  document.getElementById("source-note").textContent = ui.hidden.has("source")
+    ? `source is hidden: its ${src} entities receive ${srcEdges} provenance links and would pull everything into a knot. Turn it on to see where a fact came from.`
+    : "";
+}
+/* ---------- Time range (timeline.js): what the selected period touched ---------- */
+function plusFor(k) {
+  const n = ui.range.active ? ui.range.perKind.get(k) : 0;
+  return n ? h("span", { class: "plus", title: `${n} emission${n === 1 ? "" : "s"} in the selected range` }, `+${n}`) : null;
+}
+function rangeNote(n) {
+  const t = ui.range.active && ui.range.touched.get(n.id);
+  return t ? ` · ${t.isNew ? "new" : "updated"} in range${t.n > 1 ? ` (${t.n}×)` : ""}` : "";
+}
+/* Touched entities the current filters hide: say so and offer the switch; never unhide silently. */
+function renderRangeNote() {
+  const note = document.getElementById("range-note");
+  if (!ui.range.active) { note.hidden = true; return; }
+  let inactive = 0;
+  const byKind = new Map();
+  for (const a of ui.range.touched.keys()) {
+    const row = state.byAddr.get(a);
+    if (!row || g.byId.has(a)) continue;
+    if (ui.hidden.has(row.kind)) byKind.set(row.kind, (byKind.get(row.kind) ?? 0) + 1);
+    else if (!isActive(row)) inactive++;
+  }
+  note.hidden = !inactive && !byKind.size;
+  note.replaceChildren(...(note.hidden ? [] : [
+    "Touched in range but hidden: ",
+    ...(inactive ? [h("button", { type: "button", onclick: () => { const c = document.getElementById("inactive"); c.checked = true; c.dispatchEvent(new Event("change")); } }, `${inactive} inactive`)] : []),
+    ...[...byKind].flatMap(([k, n], i) => [(i || inactive) ? ", " : "", h("button", { type: "button", onclick: () => toggleKind(k) }, `${n} ${k}`)]),
+    ".",
+  ]));
+}
+let tickerGen = 0;          // a response for a range that has since changed is dropped
+async function renderRangeTicker() {
+  const r = ui.range, gen = ++tickerGen;
+  const facts = r.active ? await Timeline.loadFacts(r, 0, 4) : (await (await fetch("/api/facts?limit=4")).json()).facts;
+  if (gen === tickerGen) ticker.replaceChildren(...facts.map(tickerItem));
+}
+let rangeSettle = null;
+const timelineEl = document.getElementById("timeline");
+const timeBtn = document.getElementById("time-btn");
+function showTimeline(open) {
+  timelineEl.hidden = !open;
+  timeBtn.setAttribute("aria-expanded", String(open));
+  if (open) tl.redraw();
+}
+timeBtn.addEventListener("click", () => showTimeline(timelineEl.hidden));
+const tl = Timeline.create({
+  mount: timelineEl,
+  onChange(summary) {
+    const was = ui.range.active, wasPlay = !!ui.range.play;
+    ui.range = summary;
+    // Starting, seeking or ending a replay changes which entities exist: hold the map still and
+    // add or park only those. Steps are handled one at a time in onStep.
+    if (summary.cause !== "step" && (wasPlay || summary.play)) { fx.queue = []; relayout({ keepExisting: true }); }
+    renderLegend();
+    if (ui.selected) renderPanel(ui.selected);
+    if ((was || summary.active) && summary.cause !== "step") renderRangeTicker().catch(console.error);
+    if (!summary.play && heldFacts.length) onFacts(heldFacts.splice(0));
+    if (summary.cause !== "step") {        // a replay doesn't re-announce the count on every pause between steps
+      clearTimeout(rangeSettle);           // announce once the range settles, not every frame of a drag
+      rangeSettle = setTimeout(() => announce(summary.active ? `${summary.touched.size} entities changed in the selected range` : "Time range cleared"), 500);
+    }
+    wake();
+  },
+  // One replayed emission, through the live-arrival path: ticker, newcomer placed by its
+  // neighbours, the touched nodes lit. Only the latest step ripples; older queued ones are dropped.
+  onStep(f, summary) {
+    ui.range = summary;
+    const addrs = Timeline.touchedBy(Timeline.entryOf(f));
+    if (addrs.some((a) => !g.byId.has(a) && state.byAddr.has(a) && isVisible(state.byAddr.get(a)))) relayout({ keepExisting: true });
+    const now = performance.now();
+    fx.queue = [];
+    for (const a of addrs) { const n = g.byId.get(a); if (n) { n.lit = n.warm = now; celebrate(a); } }
+    pushTicker(f);
+    wake();
+  },
+});
+
+function toggleKind(k) {
+  ui.hidden.has(k) ? ui.hidden.delete(k) : ui.hidden.add(k);
+  relayout({ keepExisting: false });
+}
+document.getElementById("inactive").addEventListener("change", (e) => {
+  ui.showInactive = e.target.checked;
+  relayout({ keepExisting: false });
+});
+function renderStats() {
+  document.getElementById("stats").replaceChildren(
+    h("span", {}, h("b", {}, g.nodes.length.toLocaleString()), " nodes"),
+    h("span", {}, h("b", {}, g.links.length.toLocaleString()), " links"),
+    h("span", {}, "seq ", h("b", { class: "mono" }, "#" + state.head)));
+  canvas.setAttribute("aria-label", `Knowledge graph of the ${state.vertex} store: ${g.nodes.length} entities and ${g.links.length} links shown. Arrow keys pan; Enter isolates the selected entity; Find an entity opens one.`);
+}
+
+/* =====================================================================
+   Search combobox (the keyboard route into the graph)
+   ===================================================================== */
+
+const search = document.getElementById("search");
+const results = document.getElementById("results");
+let matches = [], active = -1;
+
+function runSearch() {
+  const q = search.value.trim().toLowerCase();
+  matches = !q ? [] : state.rows
+    .map((r) => {
+      const hay = [r.key, label(r), headline(r.payload)].join(" ").toLowerCase();
+      const i = hay.indexOf(q);
+      return i < 0 ? null : { r, score: (r.key.toLowerCase().startsWith(q) || label(r).toLowerCase().startsWith(q) ? 0 : 1) + (isActive(r) ? 0 : 2) };
+    })
+    .filter(Boolean).sort((a, b) => a.score - b.score).slice(0, 12).map((m) => m.r);
+  active = matches.length ? 0 : -1;
+  renderResults();
+}
+function renderResults() {
+  results.replaceChildren(...matches.map((r, i) => {
+    const color = `var(--${colorOf(r)})`;
+    return h("li", { role: "option", id: "opt-" + i, "aria-selected": String(i === active),
+      onpointerdown: (e) => e.preventDefault(), onclick: () => choose(i) },
+      h("span", { class: "swatch", style: `--c: ${color}` }), h("span", { class: "lbl" }, label(r)),
+      h("span", { class: "sub" }, `${r.kind} · ${r.key}${isActive(r) ? "" : " · inactive"}`));
+  }));
+  const open = matches.length > 0;
+  results.hidden = !open;
+  search.setAttribute("aria-expanded", String(open));
+  if (active >= 0) { search.setAttribute("aria-activedescendant", "opt-" + active); results.children[active]?.scrollIntoView({ block: "nearest" }); }
+  else search.removeAttribute("aria-activedescendant");
+}
+function choose(i) {
+  const r = matches[i];
+  if (!r) return;
+  matches = []; renderResults();
+  search.value = "";
+  selectAddress(r.address, { focusPanel: true });
+}
+search.addEventListener("input", runSearch);
+search.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" && matches.length) { e.preventDefault(); active = (active + 1) % matches.length; renderResults(); }
+  else if (e.key === "ArrowUp" && matches.length) { e.preventDefault(); active = (active - 1 + matches.length) % matches.length; renderResults(); }
+  else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(active); }
+  else if (e.key === "Escape") { if (matches.length) { e.stopPropagation(); matches = []; renderResults(); } else search.blur(); }
+});
+search.addEventListener("blur", () => { matches = []; renderResults(); });
+
+/* =====================================================================
+   Controls and keyboard shortcuts
+   ===================================================================== */
+
+const pauseBtn = document.getElementById("pause");
+function setPaused(p) {
+  ui.paused = p;
+  pauseBtn.textContent = p ? "Resume motion" : "Pause motion";
+  if (p) { fx.ripples = []; fx.sparks = []; cam = null; }
+  wake();
+}
+pauseBtn.addEventListener("click", () => setPaused(!ui.paused));
+document.getElementById("zoom-in").addEventListener("click", () => zoomAt(W / 2, H / 2, 1.3));
+document.getElementById("zoom-out").addEventListener("click", () => zoomAt(W / 2, H / 2, 1 / 1.3));
+document.getElementById("fit").addEventListener("click", () => fit());
+
+document.addEventListener("keydown", (e) => {
+  const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if (e.key === "Escape" && !typing) {
+    if (document.querySelector(":popover-open")) return;          // the popover handles its own Esc
+    if (iso.root) { e.preventDefault(); isoBack(); return; }
+    if (ui.selected) { closePanel(); return; }
+  }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "/") { e.preventDefault(); search.focus(); }
+  else if (e.key === "+" || e.key === "=") zoomAt(W / 2, H / 2, 1.3);
+  else if (e.key === "-") zoomAt(W / 2, H / 2, 1 / 1.3);
+  else if (e.key === "0") fit();
+});
+/* Layout settings popover. Sliders change the simulation's forces; everything relaxes to the new shape. */
+const fmtX = (v) => `${(+v).toFixed(1)}×`;
+function renderSettings() {
+  for (const input of document.querySelectorAll("#layout input[type=range]")) {
+    const k = input.dataset.key;
+    input.value = settings[k];
+    document.getElementById("out-" + k).textContent = fmtX(settings[k]);
+    input.setAttribute("aria-valuetext", fmtX(settings[k]));
+  }
+  for (const r of document.querySelectorAll("#layout input[name=depth]")) r.checked = +r.value === settings.depth;
+  document.getElementById("set-pin").checked = settings.pinOnDrop;
+  renderPinCount();
+}
+function renderPinCount() {
+  const n = g.nodes.filter((x) => x.pinned).length;
+  const b = document.getElementById("unpin");
+  b.disabled = !n; b.textContent = n ? `Release pinned (${n})` : "Release pinned";
+}
+document.getElementById("layout").addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.type === "range") { settings[t.dataset.key] = +t.value; renderSettings(); relaxAll(0.5); }
+  else if (t.name === "depth") { settings.depth = +t.value; if (iso.root) { refreshIsolation(); fit(true); wake(); } }
+  else if (t.id === "set-pin") settings.pinOnDrop = t.checked;
+  saveSettings();
+});
+document.getElementById("unpin").addEventListener("click", () => {
+  for (const n of g.nodes) if (n.pinned) { n.pinned = false; n.fx = n.fy = null; }
+  renderPinCount(); relaxAll(0.3);
+  document.getElementById("layout-reset").focus();               // the clicked button is now disabled
+});
+document.getElementById("layout-reset").addEventListener("click", () => {
+  Object.assign(settings, SETTINGS_DEFAULT); saveSettings(); renderSettings(); relaxAll(0.5);
+  if (iso.root) { refreshIsolation(); fit(true); }
+});
+renderSettings();
+
+reducedMotion.addEventListener("change", () => { if (reducedMotion.matches) { fx.ripples = []; fx.sparks = []; settle(); } wake(); });
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  readTheme();
+  for (const n of g.nodes) n.color = colorFor(n.row);
+  wake();
+});
+document.addEventListener("visibilitychange", () => { if (document.hidden) { fx.queue = []; fx.ripples = []; fx.sparks = []; } else wake(); });
+
+/* Keep "Graph" <-> "Tables" on the same entity. */
+
+/* =====================================================================
+   Emission ticker + live stream
+   ===================================================================== */
+
+const ticker = document.getElementById("ticker");
+const live = document.getElementById("live");
+const liveText = document.getElementById("live-text");
+let lastTs = null;
+
+function changeSummary(f) {
+  if (!f.before) return "new";
+  const out = [];
+  for (const [k, v] of Object.entries(f.payload ?? {})) {
+    if (k === "name" || k.endsWith("_ref")) continue;
+    const was = f.before[k];
+    if (fmt(v) === fmt(was)) continue;
+    out.push(v === "" ? `${k} cleared` : was == null || was === "" ? `${k} set` : `${k} ${clip(fmt(was), 18)} → ${clip(fmt(v), 18)}`);
+  }
+  return out.length ? out.slice(0, 2).join(" · ") + (out.length > 2 ? ` · +${out.length - 2}` : "") : "re-emitted, no change";
+}
+function tickerItem(f) {
+  const addr = `${f.kind}/${f.payload?.name}`;
+  const folded = state.byAddr.get(addr);
+  const row = { kind: f.kind, key: f.payload?.name ?? "", payload: { ...(f.before ?? folded?.payload ?? {}), ...f.payload } };
+  const color = `var(--${colorOf(row)})`;   // row.payload already overlays this fact on the folded entity
+  return h("li", {}, h("button", { type: "button", onclick: () => selectAddress(addr, { focusPanel: true }), title: `${f.kind} ${f.payload?.name} · seq #${f.seq} · ${f.observer}` },
+    h("span", { class: "swatch", style: `--c: ${color}` }),
+    h("span", { class: "key" }, label(row)),
+    h("span", { class: "what" }, changeSummary(f)),
+    timeEl(f.ts)));
+}
+function pushTicker(f) {
+  ticker.prepend(tickerItem(f));
+  while (ticker.children.length > 4) ticker.lastElementChild.remove();
+}
+function setLive(s, text) { live.dataset.state = s; liveText.textContent = text; }
+function updateLiveText() { if (live.dataset.state === "live") setLive("live", lastTs ? `Live · last emission ${relative(lastTs)}` : "Live"); }
+function announce(text) {
+  if (typeof document.ariaNotify === "function") document.ariaNotify(text);
+  else { const r = document.getElementById("announce"); r.textContent = ""; requestAnimationFrame(() => { r.textContent = text; }); }
+}
+
+let refoldTimer = null;
+const pendingNew = new Set();
+function connect() {
+  const es = new EventSource(`/api/stream?after=${state.head}`);
+  es.onopen = () => { setLive("live", "Live"); updateLiveText(); };
+  es.onerror = () => setLive("down", "Reconnecting…");
+  es.addEventListener("facts", (ev) => onFacts(JSON.parse(ev.data)));
+}
+/* Live arrivals. While a range replays they wait, and land once it ends (tl onChange). */
+const heldFacts = [];
+function onFacts(facts) {
+  if (!facts.length) return;
+  if (tl.inPlay) { heldFacts.push(...facts); return; }
+  lastTs = facts[facts.length - 1].ts;
+  tl.addFacts(facts);
+  for (const f of facts) {
+    // A fixed past range keeps its own ticker; "up to now" and no range show live arrivals.
+    if (!ui.range.active || (ui.range.live && (!ui.range.by || ui.range.by === f.observer))) pushTicker(f);
+    // Light up entities already on the map now; new ones light up once sl has re-folded.
+    for (const addr of Timeline.touchedBy(Timeline.entryOf(f))) {
+      if (g.byId.has(addr)) celebrate(addr); else pendingNew.add(addr);
+    }
+  }
+  updateLiveText();
+  const last = facts[facts.length - 1];
+  announce(facts.length === 1 ? `New emission: ${last.kind} ${last.payload?.name ?? ""}` : `${facts.length} new emissions, latest ${last.kind} ${last.payload?.name ?? ""}`);
+  clearTimeout(refoldTimer);
+  refoldTimer = setTimeout(refold, 600);
+}
+async function refold() {
+  try {
+    await loadState();
+    relayout({ keepExisting: true });
+    for (const a of pendingNew) if (g.byId.has(a)) celebrate(a);
+    pendingNew.clear();
+    if (ui.selected) renderPanel(ui.selected);
+  } catch (err) { console.error(err); }
+}
+setInterval(() => {
+  for (const t of document.querySelectorAll("time[data-ts]")) t.textContent = relative(Number(t.dataset.ts));
+  updateLiveText(); wake();
+}, 15_000);
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+
+function applyHash() {
+  const m = location.hash.slice(1);
+  const i = m.indexOf("/");
+  if (i > 0) selectAddress(m.slice(0, i) + "/" + decodeURIComponent(m.slice(i + 1)), { center: true });
+}
+
+(async function boot() {
+  readTheme();
+  try {
+    applyConfig(await (await fetch("/api/config")).json());
+    for (const k of HIDDEN_BY_DEFAULT) ui.hidden.add(k);
+    await loadState();
+    const recent = await (await fetch("/api/facts?limit=5")).json();
+    const index = await (await fetch("/api/index")).json();
+    rebuild();
+    // Settle most of the layout before the first frame; with motion on, the last stretch
+    // plays out on screen as a gentle drift instead of a jumble.
+    if (motionOn()) { for (let i = 0; i < 220; i++) tick(); } else settle();
+    resize();
+    fit(false);
+    renderLegend(); renderStats();
+    for (const f of recent.facts.slice().reverse()) pushTicker(f);
+    lastTs = recent.facts[0]?.ts ?? null;
+    applyHash();
+    tl.setIndex(index.facts);
+    if (tl.active) showTimeline(true);
+    connect();
+    wake();
+    window.graphDebug = { g, view, ui, sim, fx, iso, settings, tl };
+  } catch (err) {
+    document.body.append(h("p", { class: "error glass" }, "Could not load the store: " + err.message));
+    setLive("down", "Offline");
+  }
+})();
+window.addEventListener("hashchange", applyHash);
+</script>
+</body>
+</html>

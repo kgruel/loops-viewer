@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.loops/
+*.db
+*.db-*
+*.vertex
+.DS_Store

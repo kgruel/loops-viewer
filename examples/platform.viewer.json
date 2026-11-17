@@ -1,0 +1,161 @@
+{
+  "columns": {
+    "finding": [
+      ["severity", "Severity"],
+      ["title", "Title"],
+      ["subject", "Subject"],
+      ["mitigation_status", "Mitigation"],
+      ["status", "Status"]
+    ],
+    "reachability": [
+      ["verdict", "Verdict"],
+      ["env_scope", "Scope"],
+      ["phase", "Phase"],
+      ["verified", "Verified"],
+      ["observed_at", "Observed"]
+    ],
+    "question": [["status", "Status"], ["title|message", "Question"], ["subject", "Subject"]],
+    "work-item": [["type", "Type"], ["status", "Status"], ["summary", "Summary"]],
+    "repository": [["status", "Status"], ["group", "Group"], ["description", "Description"]],
+    "dependency": [
+      ["resolved_version", "Resolved"],
+      ["declared_version", "Declared"],
+      ["status", "Status"],
+      ["verified", "Verified"]
+    ],
+    "service": [["display_name", "Name"], ["domain", "Domain"], ["status", "Status"]],
+    "source": [["type", "Type"], ["title|conclusion|message", "Title"], ["observed_at|reviewed_at", "Observed"]],
+    "castle-policy": [["action", "Action"], ["event", "Event"], ["active", "Active"], ["environment", "Env"]],
+    "stack": [["status", "Status"], ["environment", "Env"], ["waf", "WAF"], ["observed_at", "Observed"]],
+    "ingress": [["service", "Service"], ["load_balancer", "Load balancer"], ["status", "Status"]],
+    "library": [["latest_release", "Latest"], ["coordinates", "Coordinates"]]
+  },
+  "defaultColumns": [["status", "Status"], ["title|summary|description|message", "Summary"]],
+  "groups": [
+    ["Security", ["finding", "reachability", "castle-policy", "scan-project"]],
+    ["Inventory", ["service", "service-relationship", "repository", "library", "dependency"]],
+    ["Infrastructure", ["load-balancer", "stack", "ingress", "environment"]],
+    ["Work", ["work-item", "question"]],
+    ["Reference", ["source", "service-reference", "logging"]]
+  ],
+  "kindOrder": [
+    "finding",
+    "reachability",
+    "question",
+    "work-item",
+    "service",
+    "service-relationship",
+    "repository",
+    "library",
+    "dependency",
+    "load-balancer",
+    "stack",
+    "ingress",
+    "castle-policy",
+    "environment",
+    "scan-project",
+    "service-reference",
+    "logging",
+    "source"
+  ],
+  "kindColors": {
+    "service": 1,
+    "service-relationship": 1,
+    "repository": 2,
+    "library": 3,
+    "dependency": 4,
+    "work-item": 5,
+    "question": 6,
+    "source": 7,
+    "castle-policy": 8,
+    "load-balancer": 9,
+    "stack": 9,
+    "ingress": 9,
+    "environment": 10,
+    "finding": "high",
+    "reachability": "low"
+  },
+  "colorBy": {"finding": "severity", "reachability": "verdict"},
+  "hidden": ["source"],
+  "headline": ["title", "summary", "display_name", "description", "message", "deciding_fact"],
+  "tones": {
+    "critical": "critical",
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+    "exploited": "critical",
+    "precondition-present": "high",
+    "blocked": "low",
+    "inconclusive": "low",
+    "mechanism-refuted": "ok",
+    "cleared-precondition-absent": "ok",
+    "open": "high",
+    "investigating": "medium",
+    "resolved": "ok",
+    "done": "ok",
+    "current": "ok",
+    "retired": "low",
+    "deployed": "ok",
+    "agreed": "ok",
+    "code-fix": "ok",
+    "proposed": "medium",
+    "deferred": "low",
+    "agent": "medium",
+    "session": "ok"
+  },
+  "toneFields": ["severity", "proposed_severity", "verdict", "status", "mitigation_status", "verified"],
+  "cardTags": ["severity", "verdict", "status", "verified"],
+  "ordinals": {
+    "severity": ["critical", "high", "medium", "low"],
+    "proposed_severity": ["critical", "high", "medium", "low"],
+    "verdict": [
+      "exploited",
+      "precondition-present",
+      "inconclusive",
+      "blocked",
+      "mechanism-refuted",
+      "cleared-precondition-absent"
+    ],
+    "mitigation_status": ["agreed", "code-fix", "proposed", "deferred"]
+  },
+  "labels": {
+    "finding": {"fields": ["title"]},
+    "reachability": {"key": "after@", "suffix": "verdict"},
+    "repository": {"key": "last"},
+    "source": {"key": "last"},
+    "service": {"fields": ["display_name"]}
+  },
+  "nodeSize": {
+    "finding": {
+      "base": 6,
+      "field": "severity",
+      "add": {"critical": 3, "high": 2, "medium": 1}
+    },
+    "service": {"base": 6.5},
+    "library": {"base": 6.5},
+    "reachability": {"base": 4.5},
+    "repository": {"base": 4.5}
+  },
+  "touches": {"reachability": "finding"},
+  "board": {
+    "id": "findings",
+    "title": "Findings board",
+    "kind": "finding",
+    "rowHeader": {"label": "Finding", "field": "title", "badge": "severity", "detail": "cwe"},
+    "order": "worst first",
+    "join": {
+      "kind": "reachability",
+      "predicate": "finding",
+      "field": "verdict",
+      "label": "Reachability",
+      "key": "after@",
+      "title": "deciding_fact"
+    },
+    "columns": [["subject", "Subject"], ["mitigation_status", "Mitigation"]],
+    "tiles": [
+      {"title": "Severity", "kind": "finding", "field": "severity"},
+      {"title": "Reachability verdicts", "kind": "reachability", "field": "verdict"},
+      {"title": "Mitigation", "kind": "finding", "field": "mitigation_status", "empty": "none recorded"}
+    ]
+  }
+}
