@@ -386,6 +386,47 @@ dialog::backdrop { background: rgb(20 18 15 / 0.45); overflow: hidden; overscrol
 .timeline li:last-child::before { border-color: var(--accent); background: var(--accent); }
 .timeline .meta { font-size: 12px; color: var(--ink-3); }
 
+/* Prev / next through the kind's rows, in the order the table shows them. */
+.dlg-tools { margin-inline-start: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.dlg-tools form { margin: 0; }
+.dlg-nav { display: inline-flex; align-items: center; gap: 4px; }
+.dlg-nav[hidden] { display: none; }
+.dlg-tools .close { white-space: nowrap; }
+.dlg-head > div:first-child { flex: 1; min-width: 0; }
+.dlg-nav .pos { min-width: 7ch; text-align: center; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.close:disabled { opacity: 0.4; cursor: default; }
+.close:disabled:hover { background: transparent; }
+.primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.primary:hover { background: color-mix(in srgb, var(--accent) 85%, var(--ink)); }
+
+/* ---------- Emit (only with serve.py --emit-as) ---------- */
+.emit-form { display: grid; gap: 14px; }
+.emit-form .fields dd { white-space: normal; }
+.emit-form label.f { font: 12px/1.6 var(--mono); color: var(--ink-3); }
+.emit-form textarea, .emit-form input[type="text"] {
+  width: 100%; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--paper); font: 13px/1.45 var(--sans); field-sizing: content; min-height: 32px; max-height: 40vh; resize: vertical;
+}
+.emit-form textarea[data-changed], .emit-form input[data-changed] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.emit-form .hint { font-size: 12px; color: var(--ink-3); }
+.emit-form .add { display: grid; grid-template-columns: minmax(120px, 22ch) 1fr auto; gap: 8px; align-items: start; }
+.emit-form .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.emit-form .actions .sub { color: var(--ink-3); font-size: 12px; }
+.emit-preview { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--sunken); }
+.emit-preview pre { margin: 8px 0 0; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+/* Quick edit: double-click (or Enter / F2) a field in the detail view; one field, one emit. */
+.fields dd.quick { cursor: text; border-radius: 4px; margin-inline: -4px; padding-inline: 4px; }
+.fields dd.quick:hover { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.quick-form { display: grid; gap: 6px; }
+.quick-form .row { display: grid; grid-template-columns: minmax(120px, 22ch) 1fr; gap: 8px; }
+.quick-form textarea, .quick-form input[type="text"] {
+  width: 100%; padding: 5px 8px; border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--paper); font: 13px/1.45 var(--sans); field-sizing: content; min-height: 32px; max-height: 40vh; resize: vertical;
+}
+.quick-form .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+.add-field { justify-self: start; margin-top: 8px; font-size: 12px; }
+.ok-note { margin: 0; padding: 8px 12px; border-radius: 6px; background: var(--ok-bg); color: var(--ok); }
+
 .error { margin: 16px 0; padding: 10px 12px; border-radius: 6px; background: var(--sev-critical-bg); color: var(--sev-critical); }
 </style>
 </head>
@@ -430,7 +471,15 @@ dialog::backdrop { background: rgb(20 18 15 / 0.45); overflow: hidden; overscrol
       <h2 id="detail-title"></h2>
       <p class="title" id="detail-sub"></p>
     </div>
-    <form method="dialog"><button class="close" value="close">Close</button></form>
+    <div class="dlg-tools">
+      <nav class="dlg-nav" aria-label="Rows of this kind">
+        <button type="button" class="close" id="detail-prev" aria-keyshortcuts="ArrowLeft K">← Prev</button>
+        <span class="pos" id="detail-pos" aria-live="polite"></span>
+        <button type="button" class="close" id="detail-next" aria-keyshortcuts="ArrowRight J">Next →</button>
+      </nav>
+      <button type="button" class="close" id="detail-edit" hidden>Edit</button>
+      <form method="dialog"><button class="close" value="close">Close</button></form>
+    </div>
   </div>
   <div class="dlg-body" id="detail-body"></div>
 </dialog>
@@ -518,6 +567,7 @@ const state = {
   onlyRange: false,       // show only rows the range touched
   sort: new Map(),        // view -> { col, dir } once a header was clicked; otherwise the view's own order
   feedUnseen: 0,          // emissions that arrived while the feed was collapsed
+  emit: null,             // {observer, token} when serve.py runs with --emit-as; null keeps the page read-only
 };
 
 /* ===================== Small helpers ===================== */
@@ -730,6 +780,7 @@ function renderContent() {
       h("h2", {}, kind),
       h("span", { class: "sub", id: "view-sub" }, `${rows.length} of ${total} · ${orderText(kind, "newest change first")}`,
         folded.length ? " · " + folded.join(", ") : null),
+      state.emit ? h("button", { type: "button", class: "close", onclick: () => openNewEntity(kind) }, `New ${kind}`) : null,
       lc ? h("label", {}, h("input", { type: "checkbox", checked: state.showInactive, onchange: (e) => { state.showInactive = e.target.checked; renderRail(); renderContent(); } }),
         `Show inactive (${lc.field} not ${lc.active.join("/")})`) : null),
     rangeBar([kind]),
@@ -950,8 +1001,17 @@ function renderBoard(content) {
 const detail = document.getElementById("detail");
 
 let openAddress = null;
+let detailGen = 0;
 async function openDetail(kind, key) {
-  openAddress = addrOf(kind, key);
+  const address = addrOf(kind, key);
+  // Keep the list we are stepping through when re-rendering the same entity or arriving by
+  // Prev/Next: an edit can drop the entity from the table, and Next must still go on from it.
+  const keepNav = (detail.open && address === openAddress) || nav.stepTo === address;
+  nav.stepTo = null;
+  if (!keepNav) nav.list = navList(kind, address);
+  openAddress = address;
+  editing = false;
+  const gen = ++detailGen;     // a later render (live refold, emit) wins over this one's slower history fetch
   if (state.view !== kind && !isBoard(state.view)) setView(kind);
   const row = state.byAddress.get(addrOf(kind, key));
   document.getElementById("detail-kind").textContent = kind;
@@ -960,11 +1020,15 @@ async function openDetail(kind, key) {
   const body = document.getElementById("detail-body");
   body.replaceChildren(h("p", { class: "sub" }, "Loading history…"));
   if (!detail.open) detail.showModal();
+  renderNav();
+  document.getElementById("detail-edit").hidden = !state.emit || !row;
 
   const sections = [];
   if (row) {
-    sections.push(h("section", {}, h("h3", {}, "Current fields"),
-      h("dl", { class: "fields" }, visibleFields(row.payload).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, renderValue(k, v))]))));
+    const fields = h("dl", { class: "fields" }, visibleFields(row.payload).flatMap(([k, v]) => [h("dt", {}, k), quickEditable(kind, row, k, v)]));
+    const section = h("section", {}, h("h3", {}, "Current fields"), fields);
+    if (state.emit) section.append(addFieldButton(kind, row, section));
+    sections.push(section);
     const inbound = state.inbound.get(addrOf(kind, key)) || [];
     if (inbound.length) {
       sections.push(h("section", {}, h("h3", {}, `Referenced by (${inbound.length})`),
@@ -982,10 +1046,323 @@ async function openDetail(kind, key) {
   } catch (err) {
     sections.push(h("p", { class: "error" }, "Could not load history: " + err.message));
   }
-  body.replaceChildren(...sections);
+  if (gen === detailGen && !editing) body.replaceChildren(...sections);
 }
 
+/* ---------- Prev / next by kind ----------
+   The rows of the open entity's kind in the order the page shows them: the current table's DOM
+   order (it already reflects the filter, inactive toggle, board order and any header sort), or,
+   when this kind is not on screen (reached through a link), its rows newest first under the
+   same filters. */
+const nav = { list: [], stepTo: null };
+function navList(kind, address) {
+  const prefix = kind + "/";
+  const onScreen = [...document.querySelectorAll("#content tbody tr[data-address]")]
+    .map((tr) => tr.dataset.address).filter((a) => a.startsWith(prefix));
+  if (onScreen.length) return onScreen;
+  return state.rows
+    .filter((r) => r.kind === kind && present(r) && (state.showInactive || isActive(r)) && matchesFilter(r))
+    .sort((a, b) => b.ts - a.ts).map((r) => addrOf(r.kind, r.key));
+}
+function navStep(delta) {
+  const i = nav.list.indexOf(openAddress);
+  const j = i < 0 ? (delta > 0 ? 0 : -1) : i + delta;
+  const target = nav.list[j];
+  if (!target) return;
+  if (editing && !confirm("Discard the unsaved edit?")) return;
+  nav.stepTo = target;
+  const s = target.indexOf("/");
+  location.hash = encodeHash(target.slice(0, s), target.slice(s + 1));
+}
+function renderNav() {
+  const i = nav.list.indexOf(openAddress), n = nav.list.length;
+  document.querySelector(".dlg-nav").hidden = n === 0;
+  document.getElementById("detail-pos").textContent = i < 0 ? `– of ${n}` : `${i + 1} of ${n}`;
+  document.getElementById("detail-prev").disabled = i <= 0;
+  document.getElementById("detail-next").disabled = i < 0 ? n === 0 : i >= n - 1;
+}
+document.getElementById("detail-prev").addEventListener("click", () => navStep(-1));
+document.getElementById("detail-next").addEventListener("click", () => navStep(1));
+// On the document, not the dialog: after an emit the form is replaced and focus falls back to <body>.
+document.addEventListener("keydown", (e) => {
+  if (!detail.open || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+  const delta = { ArrowLeft: -1, k: -1, ArrowRight: 1, j: 1 }[e.key];
+  if (delta) { e.preventDefault(); navStep(delta); }
+});
+
+/* ---------- Emit (serve.py --emit-as) ----------
+   An edit sends only the fields that changed: a re-emit merges, so omitted fields keep their
+   value and the history shows exactly what this emission carried. An empty field clears it.
+   Every emit is previewed first (sl emit --dry-run), then sent for real. sl validates (--strict);
+   the stream brings the new fact back like any other. */
+let editing = false;
+const keyFieldOf = (kind) => state.schema[kind]?.key_field || "name";
+
+/* Values seen for a field across the kind, offered as suggestions when they look like a closed
+   set (few, short values), e.g. status or verdict. */
+function suggestions(kind, field) {
+  const seen = new Set();
+  const lc = state.schema[kind]?.lifecycle;
+  if (lc?.field === field) lc.active.forEach((v) => seen.add(v));
+  for (const r of state.rows) {
+    const v = r.kind === kind ? r.payload?.[field] : null;
+    if (typeof v === "string" && v && v.length <= 40) seen.add(v);
+    if (seen.size > 24) return [];
+  }
+  return [...seen].sort();
+}
+
+/* Fields of a kind by how often its rows carry them, for the new-entity form. */
+function commonFields(kind) {
+  const count = new Map();
+  for (const r of state.rows) if (r.kind === kind) for (const [f, v] of visibleFields(r.payload)) {
+    if (typeof v === "string") count.set(f, (count.get(f) ?? 0) + 1);
+  }
+  return [...count].sort((a, b) => b[1] - a[1]).map(([f]) => f);
+}
+
+let fieldSeq = 0;
+function fieldInput(kind, field, value, { readOnly = false } = {}) {
+  const id = "ef-" + ++fieldSeq;
+  const opts = readOnly ? [] : suggestions(kind, field);
+  const short = opts.length && String(value).length <= 40 && !String(value).includes("\n");
+  const control = short
+    ? h("input", { type: "text", id, name: field, value, list: id + "-list", autocomplete: "off", spellcheck: "false", readonly: readOnly })
+    : h("textarea", { id, name: field, rows: 1, readonly: readOnly }, value);
+  control.dataset.original = value;
+  control.addEventListener("input", () => { control.toggleAttribute("data-changed", control.value !== control.dataset.original); });
+  return [h("dt", {}, h("label", { class: "f", for: id }, field)),
+    h("dd", {}, control, short ? h("datalist", { id: id + "-list" }, opts.map((v) => h("option", { value: v }))) : null)];
+}
+
+/* The edit form for an existing entity (row) or a new one of `kind` (row null). */
+function openEditor(kind, row) {
+  editing = true;
+  const keyField = keyFieldOf(kind);
+  const body = document.getElementById("detail-body");
+  const list = h("dl", { class: "fields" });
+  const payload = row ? Object.fromEntries(visibleFields(row.payload)) : {};
+  const fixed = [];
+  if (row) {
+    for (const [f, v] of Object.entries(payload)) {
+      if (f === keyField) continue;
+      if (typeof v === "string") list.append(...fieldInput(kind, f, v));
+      else fixed.push(f);       // sl emit writes strings; a non-string value stays as it is
+    }
+  } else {
+    list.append(...fieldInput(kind, keyField, ""));
+    list.querySelector("[name]").required = true;
+    for (const f of commonFields(kind)) if (f !== keyField) list.append(...fieldInput(kind, f, ""));
+  }
+  const addName = h("input", { type: "text", "aria-label": "New field name", placeholder: "new_field", pattern: "[A-Za-z0-9_][A-Za-z0-9_.\\-]*", autocomplete: "off", spellcheck: "false" });
+  const addBtn = h("button", { type: "button", class: "close", onclick: () => {
+    const f = addName.value.trim();
+    if (!addName.reportValidity() || !f) return;
+    if (f.endsWith("_ref") || f === keyField || list.querySelector(`[name="${CSS.escape(f)}"]`)) {
+      addName.setCustomValidity("That field is already in the form or is derived by sl."); addName.reportValidity(); return;
+    }
+    list.append(...fieldInput(kind, f, ""));
+    list.lastElementChild.querySelector("[name]").focus();
+    addName.value = "";
+  } }, "Add field");
+  addName.addEventListener("input", () => addName.setCustomValidity(""));
+  const status = h("div", { role: "status" });
+  const submit = h("button", { type: "submit", class: "close primary" }, "Preview emit");
+  const form = h("form", { class: "emit-form", "aria-label": row ? `Edit ${kind} ${row.key}` : `New ${kind}` },
+    h("p", { class: "hint" }, row
+      ? "Only changed fields are emitted; the others keep their value. Empty a field to clear it."
+      : `A new ${kind}. Empty fields are left out.`,
+      fixed.length ? ` Not editable here (not text): ${fixed.join(", ")}.` : null),
+    list,
+    h("div", { class: "add" }, addName, h("span"), addBtn),
+    status,
+    h("div", { class: "actions" }, submit,
+      h("button", { type: "button", class: "close", onclick: () => cancel() }, "Cancel"),
+      h("span", { class: "sub" }, `Emits as ${state.emit.observer}`)));
+
+  const cancel = () => { editing = false; if (row) openDetail(kind, row.key); else detail.close(); };
+  const changes = () => {
+    const out = row ? { [keyField]: row.key } : {};
+    for (const c of form.querySelectorAll("[name]")) {
+      if (row ? c.value !== c.dataset.original : c.value !== "") out[c.name] = c.value;
+    }
+    return out;
+  };
+  let previewed = null;       // the fields last previewed; Emit sends exactly those
+  form.addEventListener("input", () => { if (previewed) { previewed = null; submit.textContent = "Preview emit"; status.replaceChildren(); } });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fields = changes();
+    if (!form.reportValidity()) return;
+    if (row && Object.keys(fields).length < 2) { status.replaceChildren(h("p", { class: "error" }, "Nothing changed.")); return; }
+    submit.disabled = true;
+    try {
+      const real = previewed !== null;
+      const res = await emitFact(kind, real ? previewed : fields, !real);
+      if (!real) {
+        previewed = fields;
+        submit.textContent = `Emit ${Object.keys(fields).length - (row ? 1 : 0)} field${Object.keys(fields).length - (row ? 1 : 0) === 1 ? "" : "s"}`;
+        status.replaceChildren(h("div", { class: "emit-preview" },
+          h("strong", {}, "Preview (not yet stored)"),
+          diffView(row ? row.payload : null, fields, { full: !row }),
+          h("pre", {}, JSON.stringify(res.fact, null, 1))));
+      } else {
+        editing = false;
+        const key = fields[keyField];
+        status.replaceChildren(h("p", { class: "ok-note" }, "Emitted. The page updates when the store re-folds."));
+        announce(`Emitted ${kind} ${key}`);
+        await refreshAfterEmit();
+        if (!row) { nav.stepTo = addrOf(kind, key); location.hash = encodeHash(kind, key); }
+        else if (!editing && openAddress === addrOf(kind, key)) openDetail(kind, key);
+      }
+    } catch (err) {
+      status.replaceChildren(h("p", { class: "error" }, err.message));
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  body.replaceChildren(form);
+  (form.querySelector("textarea, input[name]"))?.focus();
+}
+
+/* ---------- Quick edit (one field, straight to sl emit --strict) ----------
+   For small changes without opening the editor: double-click a field (or focus it and press
+   Enter / F2), or "Add field" under the list. No dry-run step: the change is one field you can
+   see as you type, and sl --strict still validates it. The Edit button stays for larger edits. */
+function quickEditable(kind, row, field, value) {
+  const dd = h("dd", {}, renderValue(field, value));
+  if (!state.emit || field === keyFieldOf(kind) || typeof value !== "string") return dd;
+  dd.classList.add("quick");
+  dd.tabIndex = 0;
+  dd.title = "Double-click (or Enter) to edit";
+  const start = () => { if (!editing) quickEdit(dd, kind, row, field, value); };
+  dd.addEventListener("dblclick", (e) => { e.preventDefault(); getSelection()?.removeAllRanges(); start(); });
+  dd.addEventListener("keydown", (e) => {
+    if (e.target === dd && (e.key === "Enter" || e.key === "F2")) { e.preventDefault(); start(); }
+  });
+  return dd;
+}
+
+function quickEdit(dd, kind, row, field, value) {
+  const original = [...dd.childNodes];
+  const multi = value.length > 60 || value.includes("\n");
+  const control = quickControl(kind, field, value, multi);
+  const done = () => { editing = false; dd.replaceChildren(...original); dd.focus(); };
+  const form = quickForm(kind, row, [control], multi, () => ({ [field]: control.value }), done,
+    () => control.value === value);
+  editing = true;
+  dd.replaceChildren(form);
+  control.focus();
+  control.select?.();
+}
+
+function addFieldButton(kind, row, section) {
+  const btn = h("button", { type: "button", class: "close add-field" }, "+ Add field");
+  btn.addEventListener("click", () => {
+    if (editing) return;
+    const name = h("input", { type: "text", "aria-label": "Field name", placeholder: "field_name", required: true,
+      pattern: "[A-Za-z0-9_][A-Za-z0-9_.\\-]*", autocomplete: "off", spellcheck: "false" });
+    const value = h("input", { type: "text", "aria-label": "Value", required: true, autocomplete: "off" });
+    name.addEventListener("input", () => name.setCustomValidity(""));
+    const done = () => { editing = false; form.replaceWith(btn); btn.focus(); };
+    const form = quickForm(kind, row, [h("div", { class: "row" }, name, value)], false, () => {
+      const f = name.value.trim();
+      if (f.endsWith("_ref") || f === keyFieldOf(kind) || f in row.payload) {
+        name.setCustomValidity(f in row.payload ? "That field exists: double-click it to edit." : "That field is the key or derived by sl.");
+        name.reportValidity();
+        return null;
+      }
+      return { [f]: value.value };
+    }, done, () => false);
+    editing = true;
+    btn.replaceWith(form);
+    name.focus();
+  });
+  return btn;
+}
+
+function quickControl(kind, field, value, multi) {
+  if (multi) return h("textarea", { rows: 2, "aria-label": field }, value);
+  const opts = suggestions(kind, field);
+  const id = "qe-" + ++fieldSeq;
+  const input = h("input", { type: "text", "aria-label": field, value, autocomplete: "off", spellcheck: "false", list: opts.length ? id : null });
+  return opts.length ? Object.assign(input, { _list: h("datalist", { id }, opts.map((v) => h("option", { value: v }))) }) : input;
+}
+
+/* The shared form: Save emits {key, ...fields()} (fields() returns null to refuse); Enter saves
+   (Cmd/Ctrl+Enter in a textarea), Esc cancels without closing the dialog. */
+function quickForm(kind, row, controls, multi, fields, done, unchanged) {
+  const status = h("span", { role: "status" });
+  const save = h("button", { type: "submit", class: "close primary" }, "Save");
+  const form = h("form", { class: "quick-form" }, controls, controls.map((c) => c._list),
+    h("div", { class: "actions" }, save, h("button", { type: "button", class: "close", onclick: () => done() }, "Cancel"),
+      h("span", {}, `${multi ? "⌘Enter" : "Enter"} saves · Esc cancels · emits as ${state.emit.observer}`), status));
+  form.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); }
+    else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); }
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (unchanged()) return done();
+    const changes = fields();
+    if (!changes || !form.reportValidity()) return;
+    save.disabled = true;
+    try {
+      await emitFact(kind, { [keyFieldOf(kind)]: row.key, ...changes }, false);
+      editing = false;
+      status.textContent = "Saved. Updating…";
+      announce(`Emitted ${kind} ${row.key}: ${Object.keys(changes).join(", ")}`);
+      await refreshAfterEmit();
+      if (!editing && openAddress === addrOf(kind, row.key)) openDetail(kind, row.key);
+    } catch (err) {
+      status.replaceChildren(h("span", { class: "error" }, err.message));
+      save.disabled = false;
+    }
+  });
+  return form;
+}
+
+/* Re-fold right after our own emit (the server re-runs sl read because the head moved), rather
+   than waiting for the stream's debounced refold, so the detail shows the new value at once. */
+async function refreshAfterEmit() {
+  await loadState();
+  renderStats(); renderRail(); renderContent();
+}
+
+async function emitFact(kind, fields, dryRun) {
+  const res = await fetch("/api/emit", {
+    method: "POST", cache: "no-store",
+    headers: { "Content-Type": "application/json", "X-Emit-Token": state.emit.token },
+    body: JSON.stringify({ kind, fields, dry_run: dryRun }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+function openNewEntity(kind) {
+  openAddress = null;
+  nav.list = [];
+  document.getElementById("detail-kind").textContent = kind;
+  document.getElementById("detail-title").textContent = `New ${kind}`;
+  document.getElementById("detail-sub").textContent = "";
+  document.getElementById("detail-edit").hidden = true;
+  renderNav();
+  if (!detail.open) detail.showModal();
+  openEditor(kind, null);
+}
+document.getElementById("detail-edit").addEventListener("click", () => {
+  const i = openAddress.indexOf("/");
+  const kind = openAddress.slice(0, i), row = state.byAddress.get(openAddress);
+  if (row) openEditor(kind, row);
+});
+
+// Esc or a click outside would drop an edit in progress: ask first.
+detail.addEventListener("cancel", (e) => { if (editing && !confirm("Discard the unsaved edit?")) e.preventDefault(); });
 detail.addEventListener("close", () => {
+  editing = false;
   const { view, key } = readHash();
   if (key != null) history.replaceState(null, "", "#" + encodeHash(isBoard(state.view) ? state.view : view));
 });
@@ -998,7 +1375,11 @@ if (!("closedBy" in HTMLDialogElement.prototype)) {
   };
   let pressedOutside = false;
   detail.addEventListener("pointerdown", (e) => { pressedOutside = outside(e); });
-  detail.addEventListener("pointerup", (e) => { if (pressedOutside && outside(e)) detail.close(); });
+  detail.addEventListener("pointerup", (e) => {
+    if (!pressedOutside || !outside(e)) return;
+    if (editing && !confirm("Discard the unsaved edit?")) return;   // same guard as the cancel event
+    detail.close();
+  });
 }
 
 /* ===================== Diffs ===================== */
@@ -1144,7 +1525,7 @@ function onFacts(facts) {
       await loadState();
       renderStats(); renderRail(); renderContent();
       // Follow an open entity live: re-render its detail when it was just emitted.
-      if (detail.open && state.fresh.has(openAddress)) {
+      if (detail.open && !editing && state.fresh.has(openAddress)) {
         const i = openAddress.indexOf("/");
         openDetail(openAddress.slice(0, i), openAddress.slice(i + 1));
       }
@@ -1231,6 +1612,7 @@ const tl = Timeline.create({
 (async function boot() {
   try {
     applyConfig(await getJSON("/api/config"));
+    state.emit = (await getJSON("/api/emit")).emit;
     await loadState();
     state.view = readHash().view;   // the default view needs the config and the rows; render paths assume a view
     tl.setIndex((await getJSON("/api/index")).facts);

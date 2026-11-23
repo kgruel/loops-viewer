@@ -24,11 +24,18 @@ What it serves:
   /timeline.js   the time-range control (and Play) shared by both pages
   /chrome.js     the header shared by both pages
   /api/stream    Server-Sent Events: new emissions as they land, keyed by SQLite rowid
+  /api/emit      GET: whether this server may emit, and as which observer (null when not).
+                 POST {kind, fields, dry_run}: one `sl emit` (only with --emit-as, see below)
 
 Safety:
   - Binds to 127.0.0.1 only and rejects requests whose Host header is not loopback
     (DNS-rebinding guard). A store can hold sensitive facts: never expose it.
-  - Opens the store with SQLite `mode=ro`. There is no write path.
+  - Opens the store with SQLite `mode=ro`. Without --emit-as there is no write path.
+  - With --emit-as OBSERVER the page may emit, and only through `sl emit --strict` (argv, no
+    shell), as that observer. A POST must come from this page: same Origin, JSON body and the
+    per-process token from GET /api/emit (another site can neither send that header without a
+    CORS preflight, which this server never answers, nor read the token). sl stays the only
+    writer and the authority on what a valid fact is.
   - New facts are tracked by rowid (arrival order), not ts or ULID, because
     `loops sync` can insert facts with older timestamps.
 """
@@ -38,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import secrets
 import sqlite3
 import subprocess
 import threading
@@ -61,6 +69,7 @@ STATIC = {
 }
 
 FACT_COLUMNS = "rowid, id, kind, ts, observer, origin, payload"
+EMIT_MAX_BODY = 64 * 1024       # one fact's fields; a larger body is refused unread
 
 
 FIELD = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
@@ -173,6 +182,8 @@ class Store:
         self._state_lock = threading.Lock()
         self._state_head = -1
         self._state_body = b""
+        self._schema: dict = {}
+        self._emit_lock = threading.Lock()
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=5)
@@ -295,10 +306,53 @@ class Store:
                 }
                 self._state_body = json.dumps(body).encode()
                 self._state_head = head
+                self._schema = body["schema"]
             return self._state_body
 
+    def emit(self, observer: str, kind: str, fields: dict[str, str], dry_run: bool) -> dict:
+        """One fact through `sl emit --strict`: sl validates it and is the only writer.
 
-def make_handler(store: Store, config: dict) -> type[BaseHTTPRequestHandler]:
+        Checked here first, so a bad request never reaches sl: the kind is declared on the
+        vertex, every field name is plain, no `*_ref` (sl derives those) and the key field is
+        set. Every token is `field=value`; a token without `=` would switch sl to message
+        text. Emits are serialised so two tabs cannot interleave.
+        """
+        self.state()                                    # schema for the current head
+        schema = self._schema.get(kind)
+        if schema is None:
+            raise ValueError(f"kind {kind!r} is not declared on this vertex")
+        key_field = schema.get("key_field") or "name"
+        if not fields.get(key_field):
+            raise ValueError(f"{key_field} (the key) is required")
+        for field, value in fields.items():
+            if not FIELD.match(field) or field.endswith("_ref"):
+                raise ValueError(f"field {field!r} is not allowed")
+            if not isinstance(value, str):
+                raise ValueError(f"field {field!r} must be a string")
+        argv = ["sl", "emit", str(self.vertex), kind, *(f"{k}={v}" for k, v in fields.items()),
+                "--observer", observer, "--strict", "--json"]
+        if dry_run:
+            argv.append("--dry-run")
+        with self._emit_lock:
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode != 0:
+            raise EmitError(result.stderr.strip() or result.stdout.strip() or f"sl emit exited {result.returncode}")
+        try:
+            fact = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            fact = result.stdout.strip()
+        return {"dry_run": dry_run, "fact": fact}
+
+
+class EmitError(Exception):
+    """sl refused the fact; its message goes back to the page as is."""
+
+
+def make_handler(store: Store, config: dict, emit_as: str | None, port: int) -> type[BaseHTTPRequestHandler]:
+    # The token proves a POST came from a page this server served; it changes every start.
+    emit_token = secrets.token_urlsafe(32) if emit_as else None
+    origins = {f"http://{host}:{port}" for host in ALLOWED_HOSTS}
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -354,6 +408,8 @@ def make_handler(store: Store, config: dict) -> type[BaseHTTPRequestHandler]:
                     self._json({"head": store.head(), "facts": store.facts_before(before, limit)})
                 elif url.path == "/api/history":
                     self._json({"facts": store.history(query["kind"], query["key"])})
+                elif url.path == "/api/emit":
+                    self._json({"emit": {"observer": emit_as, "token": emit_token} if emit_as else None})
                 elif url.path == "/api/stream":
                     self._stream()
                 else:
@@ -363,6 +419,36 @@ def make_handler(store: Store, config: dict) -> type[BaseHTTPRequestHandler]:
             except (BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as exc:  # surface sl/sqlite failures to the page
+                self._json({"error": str(exc)}, status=500)
+
+        def do_POST(self) -> None:  # noqa: N802
+            if not self._host_ok():
+                self._send(403, b"Forbidden host", "text/plain; charset=utf-8")
+                return
+            if urlparse(self.path).path != "/api/emit" or not emit_as:
+                self._json({"error": "not found (start the server with --emit-as to allow emits)"}, status=404)
+                return
+            # Cross-site request forgery: a form on another site can POST here with a loopback
+            # Host. It cannot send this Origin, a JSON content type and the token all at once.
+            if (self.headers.get("Origin") not in origins
+                    or self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json"
+                    or not secrets.compare_digest(self.headers.get("X-Emit-Token", ""), emit_token)):
+                self._json({"error": "forbidden: emits are accepted only from this viewer's page"}, status=403)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= EMIT_MAX_BODY:
+                self._json({"error": f"body must be 1 to {EMIT_MAX_BODY} bytes"}, status=413)
+                return
+            try:
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict) or not isinstance(body.get("fields"), dict):
+                    raise ValueError('body must be {"kind": ..., "fields": {...}, "dry_run": bool}')
+                self._json(store.emit(emit_as, str(body.get("kind")), body["fields"], bool(body.get("dry_run"))))
+            except (ValueError, EmitError) as exc:
+                self._json({"error": str(exc)}, status=400 if isinstance(exc, ValueError) else 422)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:
                 self._json({"error": str(exc)}, status=500)
 
         def _stream(self) -> None:
@@ -400,6 +486,9 @@ def main() -> None:
     parser.add_argument("--vertex", type=Path, required=True, help="the vertex file to view")
     parser.add_argument("--config", type=Path, help="display config (default: <vertex name>.viewer.json next to the vertex)")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--emit-as", metavar="OBSERVER",
+                        help="allow the page to emit facts through `sl emit --strict`, as this observer"
+                             " (e.g. kyle/cip-graph-review). Without it the viewer is read-only.")
     args = parser.parse_args()
 
     vertex = args.vertex.resolve()
@@ -408,9 +497,10 @@ def main() -> None:
         raise SystemExit(f"Config not found: {config_path}")
     config = load_config(config_path)
     store = Store(vertex, config.get("touches"))
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, config))
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, config, args.emit_as, args.port))
     server.daemon_threads = True
-    print(f"Viewing {store.db} (read-only) at http://127.0.0.1:{args.port}", flush=True)
+    mode = f"emits allowed as {args.emit_as}" if args.emit_as else "read-only"
+    print(f"Viewing {store.db} ({mode}) at http://127.0.0.1:{args.port}", flush=True)
     print(f"Display config: {config_path if config_path.is_file() else 'none (generic display)'}", flush=True)
     try:
         server.serve_forever()

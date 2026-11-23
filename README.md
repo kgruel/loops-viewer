@@ -20,6 +20,7 @@ python3 viewer/serve.py --vertex path/to/.loops/<name>.vertex
 | `--vertex` | The vertex file to view. Required. |
 | `--config` | The display config. Default: `<name>.viewer.json` next to the vertex. Missing means the generic display. |
 | `--port` | Port on 127.0.0.1. Default 8765. |
+| `--emit-as` | Observer to emit as. Lets the page edit and create entities (see [Emit](#emit)). Without it the viewer is read-only. |
 
 Needs Python 3.10 or later and `sl` on `PATH`; the server runs `sl read --json --all` to fold
 the store's state.
@@ -28,8 +29,14 @@ the store's state.
 
 - **Loopback only.** The server binds to `127.0.0.1` and has no authentication. Do not put it
   behind a proxy, tunnel or `0.0.0.0` bind: anyone who reaches it reads the whole store.
-- **Read-only.** The database is opened with SQLite `mode=ro`. The viewer never emits; facts
-  arrive through `sl emit` as usual and show up live.
+- **Read-only by default.** The database is opened with SQLite `mode=ro`. Without
+  `--emit-as` the viewer never emits; facts arrive through `sl emit` as usual and show up live.
+- **Emits only through sl, only when asked for.** With `--emit-as`, `POST /api/emit` runs
+  `sl emit --strict` (an argument list, no shell) as that observer. The server checks the kind
+  is declared, field names are plain and not `*_ref`, and the key is set; sl does the rest.
+  A request must carry this page's `Origin`, a JSON content type and a per-process token from
+  `GET /api/emit`, so another site open in the same browser cannot post to it (cross-site
+  request forgery). Emits are permanent history: test against a copy of the store.
 - **Fixed files.** Only the four page files in `viewer/` (the two HTML pages and two scripts) are served, from an allowlist; `serve.py` itself is not.
 - The config is data only. It is validated at startup, and a typo stops the server with the
   key that is wrong, not a broken page.
@@ -85,6 +92,33 @@ worst first.
   one shows as a chip reading `<key display> · <field>`, with `title` as its tooltip.
 - Each tile tallies `field` over the present entities of `kind`. With `empty`, only entities
   that have the field count, and the text shows when none do.
+
+## Moving through a kind
+
+The detail view has **Prev** and **Next** (also ←/→ or j/k when focus is not in a field). They
+step through the rows of the open entity's kind in the order the table shows them, so the
+filter, the inactive toggle, the board's order and any header sort all apply. An entity reached
+through a link to a kind that is not on screen steps through that kind newest first. The list is
+taken when you open an entity and held while you step, so an edit that drops the entity from the
+table (say, a question marked answered) does not lose your place.
+
+## Emit
+
+Start the server with `--emit-as <observer>` to change the store from the page:
+
+- **Edit** in the detail view turns the fields into inputs. Only fields you change are emitted:
+  a re-emit merges, so the others keep their value and the history shows exactly what changed.
+  Empty a field to clear it. **Add field** adds one the entity does not have yet. Fields that
+  are not text (sl emit writes strings) and `*_ref` fields (sl derives them) are not editable.
+- **Quick edit:** outside the editor, double-click a field in the detail view (or focus it and
+  press Enter or F2) to change just that field in place. Enter saves (⌘/Ctrl+Enter for multi-line
+  text), Esc cancels. **+ Add field** under the fields adds one new field the same way. A quick
+  edit emits straight away, with no preview step: it is one field you can see as you type, and
+  `sl --strict` still validates it.
+- **New <kind>** on a kind's table opens the same form, with the kind's usual fields.
+- Fields whose values form a small set across the kind (status, verdict) suggest those values.
+- **Preview emit** runs `sl emit --dry-run` and shows the change and the fact. **Emit** then
+  sends that same fact. The stream brings it back like any other emission.
 
 ## Layout
 
