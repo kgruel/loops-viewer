@@ -287,11 +287,17 @@ class Store:
                     raise RuntimeError(result.stderr.strip() or "sl read failed")
                 folded = json.loads(result.stdout)
                 keep = ("address", "kind", "key", "payload", "edges", "ts", "observer", "n", "id")
+                rows = [{k: row.get(k) for k in keep} for row in folded.get("rows", [])]
+                for row in rows:
+                    # A kind folded with `collect` (not `by`) has no key field, so sl reports
+                    # key null and an address like `kind/<uuid>`. The pages need a string key.
+                    if row["key"] is None and row.get("address"):
+                        row["key"] = row["address"].partition("/")[2]
                 body = {
                     "vertex": folded.get("vertex"),
                     "head": head,
                     "schema": folded.get("schema", {}),
-                    "rows": [{k: row.get(k) for k in keep} for row in folded.get("rows", [])],
+                    "rows": rows,
                 }
                 self._state_body = json.dumps(body).encode()
                 self._state_head = head
